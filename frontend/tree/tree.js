@@ -232,6 +232,12 @@ class TreeManager {
         this.knownLeafKeys = new Set();
         this.pendingLandingLeafKeys = new Set();
         this.landingCleanupTimers = new Map();
+        this.landingFlights = new Map();
+        this.renderedLeafKeys = new Set();
+        this.leafPositions = new Map();
+        this.leafLayoutKey = '';
+        this.placedLeafCircles = [];
+        this.leafSpacingRadius = 0.5;
         this.recentLandingWindowMs = 2 * 60 * 1000;
         this.demoLandingEnabled = this.isDemoPage && this.urlParams.get('demoLanding') === '1';
         this.demoLandingRunNumber = 0;
@@ -938,7 +944,7 @@ class TreeManager {
         if (!await this.prepareDemoPlayback('landing')) return;
 
         this.manualDemoFallActive = false;
-        this.enableDemoMotion(7600);
+        this.enableDemoMotion(8600);
         this.closeYearReviewBook();
         this.isReviewMode = false;
         this.selectedYear = this.currentYear;
@@ -961,7 +967,7 @@ class TreeManager {
         this.updateTreeHeading();
         this.renderYearReviewBook();
         this.refreshTree();
-        this.resumeLiveRefreshAfter(7600);
+        this.resumeLiveRefreshAfter(8600);
     }
 
     async playDemoFalling() {
@@ -1309,6 +1315,27 @@ class TreeManager {
         const containerRect = this.leavesContainer.getBoundingClientRect();
         const ovalArea = this.calculateOvalArea(treeRect, containerRect);
 
+        // Leaves keep their spot across refreshes; a new layout (resize, growth stage) places them again.
+        const layoutKey = [
+            Math.round(containerRect.width),
+            Math.round(containerRect.height),
+            Math.round(treeRect.width),
+            this.treeImageLeaves?.src || ''
+        ].join('|');
+        if (layoutKey !== this.leafLayoutKey) {
+            this.leafPositions.clear();
+            this.leafLayoutKey = layoutKey;
+        }
+        // Leaves that already have a spot are registered first, so a new leaf avoids all of them.
+        this.placedLeafCircles = leafCycle.visibleVisitors
+            .map((visitor, index) => this.leafPositions.get(this.getLeafKey(visitor, index)))
+            .filter(Boolean)
+            .map(spot => ({
+                cx: spot.x + (spot.size / 2),
+                cy: spot.y + (spot.size / 2),
+                r: spot.size * this.leafSpacingRadius
+            }));
+
         if (this.debugOval) {
             this.updateOvalOverlay(ovalArea);
         } else {
@@ -1561,10 +1588,16 @@ class TreeManager {
 
         const scaleX = w / displayW;
         const scaleY = h / displayH;
+        const radius = leafSize * this.leafSpacingRadius;
+        let best = null;
 
         for (let i = 0; i < 900; i++) {
             const rx = random() * displayW;
             const ry = random() * displayH;
+
+            // Cheap overlap test first; only read mask pixels for a spot that beats the best so far.
+            const overlap = this.leafOverlapAt(left + rx, top + ry, radius);
+            if (best && overlap >= best.overlap) continue;
 
             const nx = Math.floor(rx * scaleX);
             const ny = Math.floor(ry * scaleY);
@@ -1574,14 +1607,47 @@ class TreeManager {
 
             // Alpha plus neighbour checks keep leaves anchored in the canopy, away from loose edges.
             if (alpha > 55 && this.maskPixelHasLeafSupport(ctx, nx, ny, w, h, leafSize, scaleX, scaleY)) {
-                return {
+                best = {
                     x: left + rx - leafSize / 2,
-                    y: top + ry - leafSize / 2
+                    y: top + ry - leafSize / 2,
+                    overlap
                 };
+                if (overlap === 0) break;
             }
         }
 
-        return null;
+        // A full canopy has no clear spot left; the least crowded one is used instead.
+        return best ? { x: best.x, y: best.y } : null;
+    }
+
+    // How deep a leaf centred at (cx, cy) would overlap the leaves already placed; 0 means clear.
+    leafOverlapAt(cx, cy, radius) {
+        let overlap = 0;
+        for (const other of this.placedLeafCircles) {
+            const gap = Math.hypot(cx - other.cx, cy - other.cy) - (radius + other.r);
+            if (gap < 0) overlap = Math.max(overlap, -gap);
+        }
+        return overlap;
+    }
+
+    // A leaf keeps the spot it was first given, so refreshes never move it.
+    getLeafPosition(leafKey, leafSize, visitorSeed, ovalArea) {
+        const saved = this.leafPositions.get(leafKey);
+        if (saved) {
+            const shift = (saved.size - leafSize) / 2;
+            return { x: saved.x + shift, y: saved.y + shift };
+        }
+
+        const position = this.findRandomPositionInLeavesMask(leafSize, `${visitorSeed}|position`)
+            || this.findRandomPositionInOval(ovalArea, leafSize, `${visitorSeed}|fallback`);
+
+        this.leafPositions.set(leafKey, { x: position.x, y: position.y, size: leafSize });
+        this.placedLeafCircles.push({
+            cx: position.x + (leafSize / 2),
+            cy: position.y + (leafSize / 2),
+            r: leafSize * this.leafSpacingRadius
+        });
+        return position;
     }
 
     // ==================== LEAF CREATION ====================
@@ -1658,6 +1724,11 @@ class TreeManager {
         leaf.style.opacity = String(this.leafOpacity);
         leaf.style.setProperty('--leaf-visible-opacity', String(this.leafOpacity));
         leaf.style.setProperty('--leaf-appear-duration', `${this.leafAnimationDuration}ms`);
+        // The tree is rebuilt on every refresh; only leaves new to this page should pop in.
+        if (this.renderedLeafKeys.has(leafKey)) {
+            leaf.style.setProperty('--leaf-appear-duration', '0ms');
+        }
+        this.renderedLeafKeys.add(leafKey);
         leaf.style.setProperty('--leaf-fall-duration', `${this.leafFallDuration}ms`);
         const windDirection = seededRandom() > 0.5 ? 1 : -1;
         const fallOrder = this.activeLeafCycle?.fallingLeafOrder?.get(leafKey);
@@ -1715,13 +1786,8 @@ class TreeManager {
             leaf.dataset.leafGlowTimestamp = glowTimestamp.toISOString();
         }
 
-        // 1) Place within mask
-        let position = this.findRandomPositionInLeavesMask(leafSize, `${visitorSeed}|position`);
-
-        // 2) Fallback to oval
-        if (!position) {
-            position = this.findRandomPositionInOval(ovalArea, leafSize, `${visitorSeed}|fallback`);
-        }
+        // Inside the canopy mask (oval as fallback), clear of the other leaves.
+        const position = this.getLeafPosition(leafKey, leafSize, visitorSeed, ovalArea);
 
         leaf.style.left = `${position.x}px`;
         leaf.style.top = `${position.y}px`;
@@ -1764,90 +1830,167 @@ class TreeManager {
         this.leavesContainer.appendChild(leaf);
     }
 
-    configureLeafLandingAnimation(leaf, leafKey, position, leafSize, random, index, visitor) {
+    // Plans the flight of a new leaf from the bottom of the wall to its spot on the canopy.
+    // The leaf starts fully on screen and weaves left and right in a zigzag that narrows as it
+    // rises, leaning into each turn. The path is sampled by distance travelled and played with
+    // one easing over the whole flight, so the speed changes smoothly from start to landing.
+    planLeafLandingFlight(position, leafSize, random, index, visitor) {
         const windDirection = random() > 0.5 ? 1 : -1;
-        const isDemoLanding = visitor?.isDemoLanding === true;
-        const landingDuration = isDemoLanding
-            ? Math.round(4300 + random() * 500)
-            : Math.round(3200 + random() * 900);
-        const landingDelay = isDemoLanding
+        const isDemo = visitor?.isDemoLanding === true;
+        const duration = isDemo
+            ? Math.round(6600 + random() * 500)
+            : Math.round(5600 + random() * 900);
+        const delay = isDemo
             ? 80
             : Math.min(index * 70 + Math.round(random() * 120), 640);
         const containerRect = this.leavesContainer?.getBoundingClientRect();
-        const containerWidth = containerRect?.width || window.innerWidth || 1920;
-        const containerHeight = containerRect?.height || window.innerHeight || 1080;
+        const width = containerRect?.width || window.innerWidth || 1920;
+        const height = containerRect?.height || window.innerHeight || 1080;
         const finalCenterX = (position?.x || 0) + (leafSize / 2);
         const finalCenterY = (position?.y || 0) + (leafSize / 2);
-        const startCenterX = isDemoLanding
-            ? containerWidth * (0.5 + ((random() - 0.5) * 0.2))
-            : containerWidth * (0.5 + ((random() - 0.5) * 0.12));
-        const startCenterY = isDemoLanding
-            ? containerHeight * (0.9 + (random() * 0.08))
-            : containerHeight * (0.62 + (random() * 0.12));
-        const startX = Math.round(startCenterX - finalCenterX);
-        const startY = Math.round(startCenterY - finalCenterY);
-        const swayAX = Math.round((startX * 0.68) + (windDirection * (80 + random() * 120)));
-        const swayAY = Math.round((startY * 0.72) - (26 + random() * 72));
-        const swayBX = Math.round((startX * 0.42) - (windDirection * (80 + random() * 150)));
-        const swayBY = Math.round((startY * 0.43) - (88 + random() * 120));
-        const approachX = Math.round((startX * 0.18) + (windDirection * (20 + random() * 56)));
-        const approachY = Math.round((startY * 0.16) - (34 + random() * 70));
-        const finalX = Math.round(windDirection * (6 + random() * 28));
-        const yaw = Math.round(windDirection * (22 + random() * 38));
-        const startRotate = Math.round(windDirection * -(16 + random() * 28));
-        const swayARotate = Math.round(windDirection * (22 + random() * 34));
-        const swayBRotate = Math.round(windDirection * -(12 + random() * 28));
-        const approachRotate = Math.round(windDirection * (14 + random() * 24));
-        const finalRotate = Math.round(windDirection * -(5 + random() * 18));
-        const flutterDuration = Math.round(500 + random() * 360);
-        const closeScale = (isDemoLanding ? 3.1 + random() * 0.4 : 2.25 + random() * 0.55).toFixed(2);
-        const nearScale = (isDemoLanding ? 2.24 + random() * 0.3 : 1.76 + random() * 0.26).toFixed(2);
-        const midScale = (isDemoLanding ? 1.62 + random() * 0.22 : 1.36 + random() * 0.18).toFixed(2);
-        const farScale = (isDemoLanding ? 1.14 + random() * 0.14 : 1.1 + random() * 0.12).toFixed(2);
 
-        leaf.classList.add('leaf-landing');
-        leaf.classList.toggle('leaf-demo-landing', isDemoLanding);
-        leaf.style.setProperty('--leaf-land-duration', `${landingDuration}ms`);
-        leaf.style.setProperty('--leaf-land-delay', `${landingDelay}ms`);
-        leaf.style.setProperty('--leaf-land-start-x', `${startX}px`);
-        leaf.style.setProperty('--leaf-land-start-y', `${startY}px`);
-        leaf.style.setProperty('--leaf-land-sway-a-x', `${swayAX}px`);
-        leaf.style.setProperty('--leaf-land-sway-a-y', `${swayAY}px`);
-        leaf.style.setProperty('--leaf-land-sway-b-x', `${swayBX}px`);
-        leaf.style.setProperty('--leaf-land-sway-b-y', `${swayBY}px`);
-        leaf.style.setProperty('--leaf-land-approach-x', `${approachX}px`);
-        leaf.style.setProperty('--leaf-land-approach-y', `${approachY}px`);
-        leaf.style.setProperty('--leaf-land-final-x', `${finalX}px`);
-        leaf.style.setProperty('--leaf-land-start-rotate', `${startRotate}deg`);
-        leaf.style.setProperty('--leaf-land-sway-a-rotate', `${swayARotate}deg`);
-        leaf.style.setProperty('--leaf-land-sway-b-rotate', `${swayBRotate}deg`);
-        leaf.style.setProperty('--leaf-land-approach-rotate', `${approachRotate}deg`);
-        leaf.style.setProperty('--leaf-land-final-rotate', `${finalRotate}deg`);
-        leaf.style.setProperty('--leaf-land-yaw', `${yaw}deg`);
-        leaf.style.setProperty('--leaf-land-flutter-duration', `${flutterDuration}ms`);
-        leaf.style.setProperty('--leaf-land-close-scale', closeScale);
-        leaf.style.setProperty('--leaf-land-near-scale', nearScale);
-        leaf.style.setProperty('--leaf-land-mid-scale', midScale);
-        leaf.style.setProperty('--leaf-land-far-scale', farScale);
+        const startScale = isDemo ? 2.2 + random() * 0.3 : 1.7 + random() * 0.3;
+        const halfSizeAt = (scale) => ((leafSize * scale) / 2) + 16;
+        const startCenterX = width * (0.5 + ((random() - 0.5) * 0.2));
+        const startCenterY = height - halfSizeAt(startScale) - (height * 0.04);
+        const swings = 2.2 + random() * 1.3;
+        const amplitude = Math.min(Math.max(width * 0.16, 180), 460) * (0.75 + random() * 0.5);
+        const bank = 12 + random() * 12;
+        const yaw = windDirection * (24 + random() * 26);
+        const overshoot = 6 + random() * 6;
+        const opacityValue = Number(this.leafOpacity);
+        const visibleOpacity = Number.isFinite(opacityValue) ? opacityValue : 0.9;
+        const smoothstep = (edge0, edge1, value) => {
+            const k = Math.min(1, Math.max(0, (value - edge0) / (edge1 - edge0)));
+            return k * k * (3 - (2 * k));
+        };
+        const scaleAt = (s) => 1 + ((startScale - 1) * (1 - s) ** 1.4);
+
+        // Offset from the leaf's final spot at progress s (0 = start, 1 = landed).
+        const pathAt = (s) => {
+            const envelope = (1 - s) ** 1.1;
+            const weave = windDirection * amplitude * Math.sin(Math.PI * swings * s) * envelope;
+            let centerX = startCenterX + ((finalCenterX - startCenterX) * s) + weave;
+            let centerY = startCenterY + ((finalCenterY - startCenterY) * s);
+            centerY -= overshoot * Math.sin(Math.PI * Math.max(0, (s - 0.86) / 0.14)) ** 2;
+
+            // Keep the leaf inside the screen; release the clamp at the very end so it lands exactly.
+            const margin = halfSizeAt(scaleAt(s));
+            const release = smoothstep(0.85, 1, s);
+            const clampedX = Math.min(width - margin, Math.max(margin, centerX));
+            const clampedY = Math.min(height - margin, centerY);
+            centerX = clampedX + ((centerX - clampedX) * release);
+            centerY = clampedY + ((centerY - clampedY) * release);
+            return [centerX - finalCenterX, centerY - finalCenterY];
+        };
+
+        const tableSize = 400;
+        const arcLengths = [0];
+        let previousPoint = pathAt(0);
+        for (let i = 1; i <= tableSize; i += 1) {
+            const point = pathAt(i / tableSize);
+            arcLengths.push(arcLengths[i - 1] + Math.hypot(point[0] - previousPoint[0], point[1] - previousPoint[1]));
+            previousPoint = point;
+        }
+        const totalLength = arcLengths[tableSize] || 1;
+        const progressAtDistance = (fraction) => {
+            const target = fraction * totalLength;
+            let i = 1;
+            while (i < tableSize && arcLengths[i] < target) i += 1;
+            const segment = arcLengths[i] - arcLengths[i - 1];
+            return (i - 1 + (segment > 0 ? (target - arcLengths[i - 1]) / segment : 0)) / tableSize;
+        };
+
+        const steps = 96;
+        const keyframes = [];
+
+        for (let step = 0; step <= steps; step += 1) {
+            const t = step / steps;
+            const s = progressAtDistance(t);
+            const [x, y] = pathAt(s);
+            const envelope = (1 - s) ** 1.1;
+            // Lean into the direction of travel, and turn the leaf face as it swings.
+            const rotate = windDirection * bank * Math.cos(Math.PI * swings * s) * envelope;
+            const rotateY = yaw * Math.sin(Math.PI * swings * s) * envelope;
+            const opacity = visibleOpacity * smoothstep(0, 0.05, t);
+
+            keyframes.push({
+                offset: t,
+                opacity: Number(opacity.toFixed(3)),
+                transform: step === steps
+                    ? 'translate3d(0px, 0px, 0px) rotate(0deg) rotateY(0deg) scale(1)'
+                    : `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, 0px) rotate(${rotate.toFixed(2)}deg) rotateY(${rotateY.toFixed(2)}deg) scale(${scaleAt(s).toFixed(4)})`
+            });
+        }
+
+        return {
+            isDemo,
+            duration,
+            delay,
+            keyframes,
+            yaw: Math.round(yaw),
+            flutterDuration: Math.round(700 + random() * 400)
+        };
+    }
+
+    configureLeafLandingAnimation(leaf, leafKey, position, leafSize, random, index, visitor) {
+        // Refreshes rebuild every leaf, so a flight in progress is resumed from where it was.
+        let flight = this.landingFlights.get(leafKey);
+        if (!flight) {
+            flight = this.planLeafLandingFlight(position, leafSize, random, index, visitor);
+            flight.startedAt = performance.now();
+            this.landingFlights.set(leafKey, flight);
+        }
+
+        const elapsed = performance.now() - flight.startedAt;
+        const remaining = flight.delay + flight.duration - elapsed;
+        const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+            && !document.body.classList.contains('tree-demo-motion-active');
 
         if (this.landingCleanupTimers.has(leafKey)) {
             window.clearTimeout(this.landingCleanupTimers.get(leafKey));
+            this.landingCleanupTimers.delete(leafKey);
         }
 
-        const cleanup = () => {
+        const settleLeaf = (animation) => {
             this.pendingLandingLeafKeys.delete(leafKey);
-            this.landingCleanupTimers.delete(leafKey);
+            this.landingFlights.delete(leafKey);
+            if (this.landingCleanupTimers.has(leafKey)) {
+                window.clearTimeout(this.landingCleanupTimers.get(leafKey));
+                this.landingCleanupTimers.delete(leafKey);
+            }
+            if (!leaf.isConnected && animation) return;
             leaf.classList.remove('leaf-landing');
             leaf.classList.add('leaf-landed');
+            animation?.cancel();
         };
 
-        leaf.addEventListener('animationend', (event) => {
-            if (event.animationName === 'leafLandOnTree') {
-                cleanup();
-            }
-        }, { once: true });
+        if (reduceMotion || remaining <= 0 || typeof leaf.animate !== 'function') {
+            settleLeaf(null);
+            return;
+        }
 
-        const timer = window.setTimeout(cleanup, landingDelay + landingDuration + 350);
+        leaf.classList.add('leaf-landing');
+        leaf.classList.toggle('leaf-demo-landing', flight.isDemo);
+        leaf.style.setProperty('--leaf-land-duration', `${flight.duration}ms`);
+        leaf.style.setProperty('--leaf-land-delay', `${Math.round(flight.delay - elapsed)}ms`);
+        leaf.style.setProperty('--leaf-land-yaw', `${flight.yaw}deg`);
+        leaf.style.setProperty('--leaf-land-flutter-duration', `${flight.flutterDuration}ms`);
+
+        const animation = leaf.animate(flight.keyframes, {
+            duration: flight.duration,
+            delay: flight.delay,
+            easing: 'cubic-bezier(0.4, 0, 0.3, 1)',
+            fill: 'both'
+        });
+        animation.currentTime = elapsed;
+        animation.finished
+            .then(() => {
+                if (leaf.isConnected) settleLeaf(animation);
+            })
+            .catch(() => {});
+
+        const timer = window.setTimeout(() => settleLeaf(animation), remaining + 350);
         this.landingCleanupTimers.set(leafKey, timer);
     }
 
@@ -1909,9 +2052,6 @@ class TreeManager {
     }
 
     findRandomPositionInOval(ovalArea, leafSize, seed) {
-        let x;
-        let y;
-        let tries = 0;
         const random = this.createSeededRandom(seed);
 
         const cx = ovalArea.x + ovalArea.width / 2;
@@ -1919,19 +2059,24 @@ class TreeManager {
 
         const a = ovalArea.width / 2;
         const b = ovalArea.height / 2;
+        const radius = leafSize * this.leafSpacingRadius;
+        let best = null;
 
-        do {
-            x = (random() * 2 - 1) * a;
-            y = (random() * 2 - 1) * b;
+        for (let tries = 0; a > 0 && b > 0 && tries < 500; tries++) {
+            const x = (random() * 2 - 1) * a;
+            const y = (random() * 2 - 1) * b;
+            if ((x * x) / (a * a) + (y * y) / (b * b) > 1) continue;
 
-            tries += 1;
-            if (tries > 500) break;
-        } while ((x * x) / (a * a) + (y * y) / (b * b) > 1);
+            const overlap = this.leafOverlapAt(cx + x, cy + y, radius);
+            if (!best || overlap < best.overlap) {
+                best = { x: cx + x - leafSize / 2, y: cy + y - leafSize / 2, overlap };
+            }
+            if (overlap === 0) break;
+        }
 
-        return {
-            x: cx + x - leafSize / 2,
-            y: cy + y - leafSize / 2
-        };
+        return best
+            ? { x: best.x, y: best.y }
+            : { x: cx - leafSize / 2, y: cy - leafSize / 2 };
     }
 
     // ==================== FIX: KEEP MASK ALWAYS HIDDEN ====================
