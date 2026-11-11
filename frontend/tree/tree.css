@@ -49,7 +49,7 @@ body {
    BACKGROUND (TRUE 4:1)
    ========================= */
 body {
-    background-image: url('/assets/Tree/background/plainsBackground.jpg');
+    background-image: url('/assets/Tree/background/2dTreeBackground.jpeg');
     background-repeat: no-repeat;
     background-position: center center;
     background-size: cover;       /* Safe for true 4:1 */

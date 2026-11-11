@@ -459,8 +459,24 @@ class TreeManager {
                 this.leafFallDuration = Math.min(Number(this.urlParams.get('duration')) || this.leafFallDuration, 10000);
             }
 
-            if (assets.treeBackground) {
-                document.body.style.backgroundImage = `url('${assets.treeBackground}')`;
+            // Use the admin-chosen background only once it has loaded, so a missing file
+            // keeps the default background from tree.css instead of a blank screen.
+            if (assets.treeBackground && assets.treeBackground !== this.appliedTreeBackground) {
+                const backgroundUrl = assets.treeBackground;
+                this.appliedTreeBackground = backgroundUrl;
+                const probe = new Image();
+                probe.onload = () => {
+                    if (this.appliedTreeBackground === backgroundUrl) {
+                        document.body.style.backgroundImage = `url('${backgroundUrl}')`;
+                    }
+                };
+                probe.onerror = () => {
+                    console.warn(`Tree background not found, using the default: ${backgroundUrl}`);
+                    if (this.appliedTreeBackground === backgroundUrl) {
+                        document.body.style.removeProperty('background-image');
+                    }
+                };
+                probe.src = backgroundUrl;
             }
             // Leaf override image and shared display scale
             const configuredLeafScale = Number(tree.leafDisplayScale);
