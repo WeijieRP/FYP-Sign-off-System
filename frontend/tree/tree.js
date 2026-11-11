@@ -1811,9 +1811,14 @@ class TreeManager {
         const nameElement = document.createElement('div');
         nameElement.className = 'leaf-name';
         nameElement.textContent = visitor.name || 'Anonymous';
-        const nameFontSize = this.getLeafNameFontSize(visitor.name || 'Anonymous', leafSize);
-        nameElement.style.setProperty('--leaf-name-font-size', `${nameFontSize}px`);
-        nameElement.style.fontSize = `${nameFontSize}px`;
+        const nameLayout = this.getLeafNameLayout(visitor.name || 'Anonymous', leafSize, isVip);
+        nameElement.style.setProperty('--leaf-name-left', `${nameLayout.left}%`);
+        nameElement.style.setProperty('--leaf-name-top', `${nameLayout.top}%`);
+        nameElement.style.setProperty('--leaf-name-width', `${nameLayout.width}px`);
+        nameElement.style.setProperty('--leaf-name-height', `${nameLayout.height}px`);
+        nameElement.style.setProperty('--leaf-name-lines', String(nameLayout.lines));
+        nameElement.style.setProperty('--leaf-name-font-size', `${nameLayout.fontSize}px`);
+        nameElement.style.fontSize = `${nameLayout.fontSize}px`;
         leaf.appendChild(nameElement);
 
         leaf.addEventListener('click', (event) => {
@@ -1994,16 +1999,52 @@ class TreeManager {
         this.landingCleanupTimers.set(leafKey, timer);
     }
 
-    getLeafNameFontSize(name, leafSize) {
-        const normalizedName = String(name || '').trim();
-        const length = normalizedName.length || 1;
+    // Where the name sits and how big it is: centred in the middle of the leaf, reading left to right,
+    // and small enough to stay on the leaf blade. The leaf photos lie diagonally in their square box,
+    // so the safe text area around the middle is the largest rectangle that fits in the blade there
+    // (measured from the images: about 31% x 21% of the box, the gold leaf 29% x 20%).
+    getLeafNameLayout(name, leafSize, isVip) {
         const size = Number(leafSize) || 80;
+        const area = isVip ? { width: 0.29, height: 0.2 } : { width: 0.31, height: 0.21 };
+        const width = Math.round(size * area.width);
+        const height = Math.round(size * area.height);
+        return { left: 50, top: 50, width, height, ...this.fitLeafName(name, width, height) };
+    }
 
-        const sizeBasedFont = size * 0.13;
-        const lengthPenalty = Math.min(0.6, Math.max(0, (length - 6) * 0.035));
-        const adjustedFont = sizeBasedFont * (1 - lengthPenalty);
+    // Largest font (6 to 14px) at which the wrapped name fits the box. Measured by the browser itself
+    // in a hidden copy of .leaf-name, so the line breaks match the real ones exactly. A name too long
+    // even at 6px gets as many lines as fit and CSS ends it with "...".
+    fitLeafName(name, boxWidth, boxHeight) {
+        const text = String(name || '').trim() || 'Anonymous';
+        const cacheKey = `${text}|${boxWidth}|${boxHeight}`;
+        if (!this.leafNameFitCache) this.leafNameFitCache = new Map();
+        if (this.leafNameFitCache.has(cacheKey)) return this.leafNameFitCache.get(cacheKey);
 
-        return Math.max(6, Math.min(14, Math.round(adjustedFont)));
+        if (!this.leafNameMeasurer || !this.leafNameMeasurer.isConnected) {
+            this.leafNameMeasurer = document.createElement('div');
+            this.leafNameMeasurer.className = 'leaf-name leaf-name-measure';
+            this.leafNameMeasurer.setAttribute('aria-hidden', 'true');
+            document.body.appendChild(this.leafNameMeasurer);
+        }
+        const measurer = this.leafNameMeasurer;
+        measurer.textContent = text;
+        measurer.style.width = `${boxWidth}px`;
+
+        const lineHeight = 1.15;
+        let result = null;
+        for (let fontSize = 14; fontSize >= 6 && !result; fontSize -= 0.5) {
+            measurer.style.fontSize = `${fontSize}px`;
+            const lines = Math.max(1, Math.round(measurer.scrollHeight / (fontSize * lineHeight)));
+            if (measurer.scrollHeight <= boxHeight + 0.5) {
+                result = { fontSize, lines };
+            }
+        }
+
+        if (!result) {
+            result = { fontSize: 6, lines: Math.max(1, Math.floor(boxHeight / (6 * lineHeight))) };
+        }
+        this.leafNameFitCache.set(cacheKey, result);
+        return result;
     }
 
     applyLeafThresholdEffect(leafCycle) {

@@ -600,30 +600,45 @@ body {
     pointer-events: auto;
 }
 
+/* The name box is the safe text area inside the leaf blade; tree.js (getLeafNameLayout) sets its
+   centre, size, font and line count so the wrapped name never leaves the leaf. */
 .leaf-name {
     position: absolute;
-    top: 50%;
-    left: 50%;
+    top: var(--leaf-name-top, 50%);
+    left: var(--leaf-name-left, 50%);
     transform: translate(-50%, -50%);
     color: #ffffff;
     font-weight: bold;
-    font-size: var(--leaf-name-font-size, clamp(10px, calc(var(--leaf-size, 80px) * 0.12), 16px));
+    font-size: var(--leaf-name-font-size, clamp(6px, calc(var(--leaf-size, 80px) * 0.1), 14px));
     text-align: center;
     pointer-events: none;
-    width: calc(var(--leaf-size, 80px) * 0.72);
-    max-width: 85%;
-    padding: 0 6px;
-    line-height: 1.2;
+    width: var(--leaf-name-width, calc(var(--leaf-size, 80px) * 0.36));
+    max-height: var(--leaf-name-height, calc(var(--leaf-size, 80px) * 0.25));
+    padding: 0;
+    line-height: 1.15;
     white-space: normal;
-    word-break: break-word;
-    overflow-wrap: break-word;
+    word-break: normal;
+    overflow-wrap: anywhere;
     display: -webkit-box;
-    -webkit-line-clamp: 3;
+    -webkit-line-clamp: var(--leaf-name-lines, 2);
     -webkit-box-orient: vertical;
-    line-clamp: 2;
+    line-clamp: var(--leaf-name-lines, 2);
     text-wrap: balance;
     text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65);
     overflow: hidden;
+}
+
+/* Hidden copy that tree.js uses to measure how many lines a name wraps to. */
+.leaf-name.leaf-name-measure {
+    position: fixed;
+    top: 0;
+    left: 0;
+    transform: none;
+    display: block;
+    max-height: none;
+    -webkit-line-clamp: none;
+    line-clamp: none;
+    visibility: hidden;
 }
 
 .leaf-badge {
