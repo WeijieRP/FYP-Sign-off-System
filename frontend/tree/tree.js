@@ -1810,8 +1810,16 @@ class TreeManager {
 
         const nameElement = document.createElement('div');
         nameElement.className = 'leaf-name';
-        nameElement.textContent = visitor.name || 'Anonymous';
-        const nameLayout = this.getLeafNameLayout(visitor.name || 'Anonymous', leafSize, isVip);
+        // The name follows the leaf photo actually shown (the admin-chosen image too) and its mirroring.
+        let shownSide = null;
+        if (/LeftLeaf/i.test(leafImageUrl)) shownSide = 'LeftLeaf.png';
+        if (/RightLeaf/i.test(leafImageUrl)) shownSide = 'RightLeaf.png';
+        if (shownSide && useFlippedOverride) {
+            shownSide = shownSide === 'LeftLeaf.png' ? 'RightLeaf.png' : 'LeftLeaf.png';
+        }
+        const nameLayout = this.getLeafNameLayout(visitor.name || 'Anonymous', leafSize, isVip, shownSide);
+        nameElement.textContent = nameLayout.text;
+        nameElement.style.setProperty('--leaf-name-angle', `${nameLayout.angle}deg`);
         nameElement.style.setProperty('--leaf-name-left', `${nameLayout.left}%`);
         nameElement.style.setProperty('--leaf-name-top', `${nameLayout.top}%`);
         nameElement.style.setProperty('--leaf-name-width', `${nameLayout.width}px`);
@@ -1999,24 +2007,36 @@ class TreeManager {
         this.landingCleanupTimers.set(leafKey, timer);
     }
 
-    // Where the name sits and how big it is: centred in the middle of the leaf, reading left to right,
-    // and small enough to stay on the leaf blade. The leaf photos lie diagonally in their square box,
-    // so the safe text area around the middle is the largest rectangle that fits in the blade there
-    // (measured from the images: about 31% x 21% of the box, the gold leaf 29% x 20%).
-    getLeafNameLayout(name, leafSize, isVip) {
+    // Where the name sits, its angle and its size: centred in the middle of the leaf and turned to run
+    // along the midrib, small enough to stay on the leaf blade. The built-in leaf photos lie diagonally
+    // with the midrib about 27.5 degrees from horizontal: rising to the right on the left-hand leaf,
+    // falling to the right on the right-hand one. The safe text area is the largest rectangle at that
+    // angle that fits in the blade around the middle (measured from the images: about 34% x 23% of
+    // the box, the gold leaf 30% x 19%). A custom uploaded leaf image of unknown shape keeps the name
+    // level, in the level safe area (31% x 21%, gold 29% x 20%). `side` is the photo as shown,
+    // mirroring included.
+    getLeafNameLayout(name, leafSize, isVip, side) {
         const size = Number(leafSize) || 80;
-        const area = isVip ? { width: 0.29, height: 0.2 } : { width: 0.31, height: 0.21 };
+        let angle = 0;
+        if (side === 'LeftLeaf.png') angle = -27.5;
+        if (side === 'RightLeaf.png') angle = 27.5;
+
+        let area = isVip ? { width: 0.29, height: 0.2 } : { width: 0.31, height: 0.21 };
+        if (angle !== 0) {
+            area = isVip ? { width: 0.3, height: 0.19 } : { width: 0.34, height: 0.23 };
+        }
         const width = Math.round(size * area.width);
         const height = Math.round(size * area.height);
-        return { left: 50, top: 50, width, height, ...this.fitLeafName(name, width, height) };
+        return { left: 50, top: 50, angle, width, height, ...this.fitLeafName(name, width, height) };
     }
 
-    // Largest font (6 to 14px) at which the wrapped name fits the box. Measured by the browser itself
-    // in a hidden copy of .leaf-name, so the line breaks match the real ones exactly. A name too long
-    // even at 6px gets as many lines as fit and CSS ends it with "...".
+    // Largest font (14px down to 7px) at which the name fits the box, wrapping only between words,
+    // never inside one. Measured by the browser itself in a hidden copy of .leaf-name, so the line
+    // breaks match the real ones exactly. A name that cannot fit at 7px is shortened at a word
+    // boundary with "..." (the full name stays in the leaf's title and detail card).
     fitLeafName(name, boxWidth, boxHeight) {
-        const text = String(name || '').trim() || 'Anonymous';
-        const cacheKey = `${text}|${boxWidth}|${boxHeight}`;
+        const fullText = String(name || '').trim().replace(/\s+/g, ' ') || 'Anonymous';
+        const cacheKey = `${fullText}|${boxWidth}|${boxHeight}`;
         if (!this.leafNameFitCache) this.leafNameFitCache = new Map();
         if (this.leafNameFitCache.has(cacheKey)) return this.leafNameFitCache.get(cacheKey);
 
@@ -2027,21 +2047,36 @@ class TreeManager {
             document.body.appendChild(this.leafNameMeasurer);
         }
         const measurer = this.leafNameMeasurer;
-        measurer.textContent = text;
         measurer.style.width = `${boxWidth}px`;
-
         const lineHeight = 1.15;
-        let result = null;
-        for (let fontSize = 14; fontSize >= 6 && !result; fontSize -= 0.5) {
-            measurer.style.fontSize = `${fontSize}px`;
-            const lines = Math.max(1, Math.round(measurer.scrollHeight / (fontSize * lineHeight)));
-            if (measurer.scrollHeight <= boxHeight + 0.5) {
-                result = { fontSize, lines };
+
+        const largestFit = (text, minFont) => {
+            measurer.textContent = text;
+            for (let fontSize = 14; fontSize >= minFont; fontSize -= 0.5) {
+                measurer.style.fontSize = `${fontSize}px`;
+                if (measurer.scrollHeight <= boxHeight + 0.5 && measurer.scrollWidth <= boxWidth + 0.5) {
+                    const lines = Math.max(1, Math.round(measurer.scrollHeight / (fontSize * lineHeight)));
+                    return { text, fontSize, lines };
+                }
             }
+            return null;
+        };
+
+        let result = largestFit(fullText, 7);
+
+        // Too long: keep as many whole words as fit, then "...".
+        const words = fullText.split(' ');
+        for (let count = words.length - 1; count >= 1 && !result; count -= 1) {
+            result = largestFit(`${words.slice(0, count).join(' ')}…`, 7);
+        }
+
+        // Even the first word alone is too long: cut it, still at a readable size.
+        for (let chars = words[0].length - 1; chars >= 1 && !result; chars -= 1) {
+            result = largestFit(`${words[0].slice(0, chars)}…`, 6);
         }
 
         if (!result) {
-            result = { fontSize: 6, lines: Math.max(1, Math.floor(boxHeight / (6 * lineHeight))) };
+            result = { text: fullText.slice(0, 1), fontSize: 6, lines: 1 };
         }
         this.leafNameFitCache.set(cacheKey, result);
         return result;
