@@ -619,7 +619,7 @@ body {
     width: var(--leaf-name-width, calc(var(--leaf-size, 80px) * 0.36));
     max-height: var(--leaf-name-height, calc(var(--leaf-size, 80px) * 0.25));
     padding: 0;
-    line-height: 1.15;
+    line-height: 1.05;
     white-space: normal;
     /* Break only between words (or after a hyphen); tree.js shortens a name that would not fit. */
     word-break: normal;
