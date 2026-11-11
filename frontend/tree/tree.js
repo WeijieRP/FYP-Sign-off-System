@@ -1819,6 +1819,11 @@ class TreeManager {
         leaf.style.setProperty('--leaf-image-scale-x', useFlippedOverride ? '-1' : '1');
         leaf.style.backgroundImage = 'none';
 
+        // Every leaf joins the tree at its own angle: upright, sideways, upside down or anything between.
+        // Seeded from the feedback, so a leaf keeps its angle across refreshes.
+        const leafAngle = Math.round(this.createSeededRandom(`${visitorSeed}|angle`)() * 360) - 180;
+        leaf.style.setProperty('--leaf-angle', `${leafAngle}deg`);
+
         const isFallingLeaf = this.activeLeafCycle?.fallingLeafKeys?.has(leafKey) === true;
         if (this.pendingLandingLeafKeys.has(leafKey) && !isFallingLeaf) {
             this.configureLeafLandingAnimation(leaf, leafKey, position, leafSize, seededRandom, index, visitor);
@@ -1835,7 +1840,13 @@ class TreeManager {
         }
         const nameLayout = this.getLeafNameLayout(visitor.name || 'Anonymous', leafSize, isVip, shownSide);
         nameElement.textContent = nameLayout.text;
-        nameElement.style.setProperty('--leaf-name-angle', `${nameLayout.angle}deg`);
+        // The name turns with the leaf so it stays along the midrib, flipped half a turn when it would
+        // otherwise read upside down (the text box is centred, so it still fits the blade).
+        let nameAngle = (((nameLayout.angle + leafAngle) % 360) + 360) % 360;
+        if (nameAngle > 180) nameAngle -= 360;
+        if (nameAngle > 90) nameAngle -= 180;
+        if (nameAngle <= -90) nameAngle += 180;
+        nameElement.style.setProperty('--leaf-name-angle', `${nameAngle.toFixed(1)}deg`);
         nameElement.style.setProperty('--leaf-name-left', `${nameLayout.left}%`);
         nameElement.style.setProperty('--leaf-name-top', `${nameLayout.top}%`);
         nameElement.style.setProperty('--leaf-name-width', `${nameLayout.width}px`);

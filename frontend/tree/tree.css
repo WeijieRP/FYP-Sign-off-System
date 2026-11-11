@@ -116,8 +116,9 @@ body {
     transform: translate3d(0, 0, 0);
     transform-style: preserve-3d;
     isolation: isolate;
-    contain: layout paint;
-    overflow: hidden;
+    /* Not clipped: a turned leaf's stem and tip can reach just past its square box. */
+    contain: layout;
+    overflow: visible;
     animation-name: leafAppear;
     animation-duration: var(--leaf-appear-duration, 700ms);
     animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -135,6 +136,8 @@ body {
     background-position: center;
     transform: scaleX(var(--leaf-image-scale-x, 1));
     transform-origin: center;
+    /* The leaf's own angle from tree.js; a separate property, so the flutter animations still apply. */
+    rotate: var(--leaf-angle, 0deg);
     pointer-events: none;
 }
 
