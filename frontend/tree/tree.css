@@ -184,9 +184,19 @@ body {
     filter: drop-shadow(0 8px 12px rgba(12, 50, 27, 0.28));
 }
 
+/* The pledge colour recolours the real leaf photo instead of replacing it: the "color" blend keeps the
+   photo's light and shade, so the veins, midrib and texture stay visible in every badge colour.
+   The mask clips the colour layer to the leaf's own outline. */
 .leaf.leaf-tinted:not(.vip)::before {
-    background-image: none;
-    background-color: var(--leaf-badge-color, #4a7c59);
+    background-image:
+        linear-gradient(var(--leaf-badge-color, #4a7c59), var(--leaf-badge-color, #4a7c59)),
+        var(--leaf-image-url);
+    background-size: 100% 100%, contain;
+    background-repeat: no-repeat, no-repeat;
+    background-position: center, center;
+    background-blend-mode: color, normal;
+    /* Lifts the dark photo so light colours (amber, sky blue) stay bright, and sharpens the veins. */
+    filter: brightness(1.28) contrast(1.18) saturate(1.15);
     -webkit-mask-image: var(--leaf-image-url);
     mask-image: var(--leaf-image-url);
     -webkit-mask-size: contain;
