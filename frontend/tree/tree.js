@@ -1889,7 +1889,8 @@ class TreeManager {
         const finalCenterX = (position?.x || 0) + (leafSize / 2);
         const finalCenterY = (position?.y || 0) + (leafSize / 2);
 
-        const startScale = isDemo ? 2.2 + random() * 0.3 : 1.7 + random() * 0.3;
+        // Every new leaf rises from the bottom middle at twice its size and shrinks to its real size on the tree.
+        const startScale = 2;
         const halfSizeAt = (scale) => ((leafSize * scale) / 2) + 16;
         const startCenterX = width * (0.5 + ((random() - 0.5) * 0.2));
         const startCenterY = height - halfSizeAt(startScale) - (height * 0.04);
@@ -1904,7 +1905,9 @@ class TreeManager {
             const k = Math.min(1, Math.max(0, (value - edge0) / (edge1 - edge0)));
             return k * k * (3 - (2 * k));
         };
-        const scaleAt = (s) => 1 + ((startScale - 1) * (1 - s) ** 1.4);
+        // Shrinks gradually across the whole flight: holds 2x for a moment at the start,
+        // then eases down and settles softly at 1x as it reaches its spot.
+        const scaleAt = (s) => 1 + ((startScale - 1) * (1 - smoothstep(0, 1, s)));
 
         // Offset from the leaf's final spot at progress s (0 = start, 1 = landed).
         const pathAt = (s) => {
