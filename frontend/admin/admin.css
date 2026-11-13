@@ -2449,6 +2449,21 @@ body {
     display: block;
 }
 
+/* Display 2D/3D Tree switches the settings below it: the 2D tabs, or the 3D Tree Settings (admin/js/tree3d.js). */
+.tree3d-settings {
+    display: none;
+    margin-top: 20px;
+}
+
+#tree-adjustment-page.tree-mode-3d .tree3d-settings {
+    display: block;
+}
+
+#tree-adjustment-page.tree-mode-3d .tree-tabs,
+#tree-adjustment-page.tree-mode-3d .tree-tab-content {
+    display: none;
+}
+
 /* ==================== OVERLAY MANAGEMENT PAGE STYLES ==================== */
 
 /* Overlay page container */

@@ -35,6 +35,13 @@ const TREE3D_TITLE_DEFAULTS = {
 // The rain areas the 3D page lists come from the same public Singapore feed.
 const TREE3D_AREA_FEED = 'https://api-open.data.gov.sg/v2/real-time/api/two-hr-forecast';
 
+// Display 2D/3D Tree (top of Digital Tree Adjustment) picks which settings are shown below it:
+// the 2D tabs for 2D, the 3D Tree Settings for 3D. Choosing only switches the view; Save Display makes it live.
+function showTreeSettingsForMode(mode) {
+    const page = document.getElementById('tree-adjustment-page');
+    if (page) page.classList.toggle('tree-mode-3d', mode === '3d');
+}
+
 function tree3dField(id) {
     return document.getElementById(`tree3d-${id}`);
 }
@@ -213,4 +220,7 @@ async function loadTree3dSettings() {
     loadTree3dRainAreas();
 }
 
-document.addEventListener('DOMContentLoaded', loadTree3dSettings);
+document.addEventListener('DOMContentLoaded', () => {
+    showTreeSettingsForMode(document.getElementById('param-treeDisplayMode')?.value);
+    loadTree3dSettings();
+});

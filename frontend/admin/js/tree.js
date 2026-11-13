@@ -1027,6 +1027,8 @@ async function loadTreeTitleSettings() {
     // treeDisplayMode is saved on treeParameters itself; reading it from the title box reset the select to 2D
     const displayModeSelect = document.getElementById('param-treeDisplayMode');
     if (displayModeSelect) displayModeSelect.value = (tree.treeDisplayMode || settings?.treeDisplayMode) === '3d' ? '3d' : '2d';
+    // Show the settings of the tree that is live (admin/js/tree3d.js).
+    if (displayModeSelect && typeof showTreeSettingsForMode === 'function') showTreeSettingsForMode(displayModeSelect.value);
     if (settings) {
         document.getElementById('param-showTitleBox').checked = settings.showTitleBox ?? true;
         document.getElementById('param-titleText').value = settings.titleText || '🌳 ESG Digital Tree';

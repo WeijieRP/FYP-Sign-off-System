@@ -889,6 +889,29 @@
                         <p>Adjust tree growth parameters and background settings</p>
                     </div>
 
+                    <!-- Which tree the wall shows. The settings below follow this choice: 2D shows the two 2D tabs,
+                         3D shows the 3D Tree Settings (showTreeSettingsForMode in admin/js/tree3d.js).
+                         Save Display makes the chosen tree live. -->
+                    <div class="tree-adjustment-section">
+                        <div class="section-header">
+                            <h3>Display 2D/3D Tree</h3>
+                            <div style="display:flex; gap:10px; align-items:center;">
+                                <button class="btn-primary" onclick="saveTreeParameters()">Save Display</button>
+                            </div>
+                        </div>
+
+                        <div class="section-body" style="display:flex;gap:20px;align-items:center;margin-top:12px;">
+                            <div style="flex:1;">
+                                <label for="param-treeDisplayMode">Tree Display Mode</label><br>
+                                <select id="param-treeDisplayMode" onchange="showTreeSettingsForMode(this.value)" style="padding:8px 10px;border:1px solid #d7dbe3;border-radius:6px;background:#fff;min-width:180px;">
+                                    <option value="2d">2D Tree</option>
+                                    <option value="3d">3D Tree</option>
+                                </select>
+                                <p style="font-size:12px;color:#666;margin-top:6px;">The settings below switch to the selected tree. Save Display makes it the tree on the wall; the other route returns blocked.</p>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Tab Contents for Digital Tree Adjustment -->
                      <div class="tree-tabs">
                         <button class="tree-tab active" onclick="switchTreeTab('tree-elements-tab')">
@@ -897,10 +920,6 @@
 
                         <button class="tree-tab" onclick="switchTreeTab('tree-parameters-tab')">
                             🌳 Tree Parameters Settings
-                        </button>
-
-                        <button class="tree-tab" onclick="switchTreeTab('tree3d-settings-tab')">
-                            3D Tree Settings
                         </button>
                     </div>
 
@@ -1189,32 +1208,12 @@
                                 </div>
                             </div>
                         </div>
-                        <br>
-                        <div class="tree-adjustment-section">
-                            <div class="section-header">
-                                <h3>Display 2D/3D Tree</h3>
-                                <div style="display:flex; gap:10px; align-items:center;">
-                                    <button class="btn-primary" onclick="saveTreeParameters()">Save Display</button>
-                                </div>
-                            </div>
-
-                            <div class="section-body" style="display:flex;gap:20px;align-items:center;margin-top:12px;">
-                                <div style="flex:1;">
-                                    <label for="param-treeDisplayMode">Tree Display Mode</label><br>
-                                    <select id="param-treeDisplayMode" style="padding:8px 10px;border:1px solid #d7dbe3;border-radius:6px;background:#fff;min-width:180px;">
-                                        <option value="2d">2D Tree</option>
-                                        <option value="3d">3D Tree</option>
-                                    </select>
-                                    <p style="font-size:12px;color:#666;margin-top:6px;">Only the selected route stays live; the other route returns blocked.</p>
-                                </div>
-                            </div>
-                        </div>
                     </div>
 
                     <!-- 3D Tree Settings (Role 2, Wei Jie): the controls of the /3dTree page and its title box.
                          Saved as tree3dParameters (backend/features/parameters/tree3d.js) by admin/js/tree3d.js;
                          the 3D page applies them within a few seconds (frontend/3dTree/tree3d-settings.js). -->
-                    <div id="tree3d-settings-tab" class="tree-tab-content">
+                    <div id="tree3d-settings-tab" class="tree3d-settings">
                         <div class="tree-adjustment-section">
                             <div class="section-header">
                                 <h3>3D Scene Controls</h3>
