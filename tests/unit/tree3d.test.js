@@ -56,3 +56,23 @@ test('an action time is stored as ISO time, and empty clears it', () => {
     assert.equal(normalizeTree3dParameters({ gustRequestedAt: '2026-11-13T10:00:00Z' }).gustRequestedAt, '2026-11-13T10:00:00.000Z');
     assert.equal(normalizeTree3dParameters({ sunsetRequestedAt: '' }).sunsetRequestedAt, '');
 });
+
+test('3D leaf settings: colours, scale and the most leaves are checked', () => {
+    const saved = normalizeTree3dParameters({ showFeedbackLeaves: false, leafNewColor: '#7CB342', leafOldColor: '#1f5f2e',
+        leafNewHours: 12, leafScale: 1.5, maxLeaves: 20 });
+    assert.deepEqual(saved, { showFeedbackLeaves: false, leafNewColor: '#7cb342', leafOldColor: '#1f5f2e',
+        leafNewHours: 12, leafScale: 1.5, maxLeaves: 20 });
+    assert.throws(() => normalizeTree3dParameters({ leafNewColor: 'green' }), { statusCode: 400, message: /colour/ });
+    // Greens only: light greens for new leaves, dark greens for older ones.
+    assert.throws(() => normalizeTree3dParameters({ leafNewColor: '#e07b24' }), { statusCode: 400, message: /greens/ });
+    assert.throws(() => normalizeTree3dParameters({ leafNewColor: '#1f5f2e' }), { statusCode: 400 });
+    assert.throws(() => normalizeTree3dParameters({ leafOldColor: '#7cb342' }), { statusCode: 400 });
+    assert.equal(normalizeTree3dParameters({ leafSide: 'LEFT' }).leafSide, 'left');
+    assert.throws(() => normalizeTree3dParameters({ leafSide: 'up' }), { statusCode: 400 });
+    assert.equal(DEFAULT_TREE3D_PARAMETERS.leafNewColor, '#7cb342');
+    assert.equal(DEFAULT_TREE3D_PARAMETERS.leafSide, 'both');
+    assert.throws(() => normalizeTree3dParameters({ leafOldColor: '#12345' }), { statusCode: 400 });
+    assert.equal(normalizeTree3dParameters({ leafScale: 9 }).leafScale, 2.5);
+    assert.equal(normalizeTree3dParameters({ maxLeaves: 0 }).maxLeaves, 1);
+    assert.equal(DEFAULT_TREE3D_PARAMETERS.maxLeaves, 15);
+});

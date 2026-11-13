@@ -32,6 +32,36 @@ const TREE3D_TITLE_DEFAULTS = {
     paddingY: 12
 };
 
+// 3D Leaf Adjustments: the feedback leaves on the 3D tree (frontend/3dTree/feedback-leaves.js).
+const TREE3D_LEAF_DEFAULTS = {
+    showFeedbackLeaves: true,
+    leafNewColor: '#7cb342',
+    leafOldColor: '#1f5f2e',
+    leafSide: 'both',
+    leafNewHours: 24,
+    leafScale: 1,
+    maxLeaves: 15
+};
+
+// Greens only: light greens for new leaves, dark greens for older ones. The server accepts only these
+// (LEAF_NEW_COLOURS / LEAF_OLD_COLOURS in backend/features/parameters/tree3d.js).
+const TREE3D_LEAF_COLOURS = {
+    New: [
+        ['Light green', '#7cb342'],
+        ['Fresh green', '#8bc34a'],
+        ['Spring green', '#9ccc65'],
+        ['Lime green', '#a4c639'],
+        ['Leaf green', '#66bb6a']
+    ],
+    Old: [
+        ['Dark green', '#1f5f2e'],
+        ['Forest green', '#2e7d32'],
+        ['Deep green', '#1b5e20'],
+        ['Dark olive green', '#33691e'],
+        ['Moss green', '#2d5a27']
+    ]
+};
+
 // The rain areas the 3D page lists come from the same public Singapore feed.
 const TREE3D_AREA_FEED = 'https://api-open.data.gov.sg/v2/real-time/api/two-hr-forecast';
 
@@ -55,6 +85,51 @@ function updateTree3dRangeLabels() {
     if (opacity) tree3dField('titleOpacityValue').textContent = Number(opacity.value).toFixed(2);
     if (blur) tree3dField('titleBlurValue').textContent = `${blur.value}px`;
     if (radius) tree3dField('titleRadiusValue').textContent = `${radius.value}px`;
+}
+
+// Colour swatches: light greens for the new leaves, dark greens for the older ones.
+function renderTree3dLeafSwatches() {
+    for (const which of ['New', 'Old']) {
+        const box = tree3dField(`leaf${which}Swatches`);
+        if (!box || box.childElementCount) continue;
+        for (const [name, hex] of TREE3D_LEAF_COLOURS[which]) {
+            const swatch = document.createElement('button');
+            swatch.type = 'button';
+            swatch.className = 'leaf3d-swatch';
+            swatch.style.background = hex;
+            swatch.dataset.colour = hex;
+            swatch.title = name;
+            swatch.setAttribute('aria-label', name);
+            swatch.addEventListener('click', () => {
+                tree3dField(`leaf${which}Color`).value = hex;
+                updateTree3dLeafPreview();
+            });
+            box.appendChild(swatch);
+        }
+    }
+}
+
+// The preview shows the RainTree leaf in the chosen colours and sides, sized with the leaf scale.
+// A left leaf is the leaf mirrored; with left and right mixed, the new leaf shows right and the older left.
+function updateTree3dLeafPreview() {
+    const scale = Number(tree3dField('leafScale')?.value) || 1;
+    if (tree3dField('leafScaleValue')) tree3dField('leafScaleValue').textContent = String(Number(scale.toFixed(2)));
+    const side = tree3dField('leafSide')?.value || 'both';
+    for (const which of ['New', 'Old']) {
+        const colour = (tree3dField(`leaf${which}Color`)?.value || '').toLowerCase();
+        const preview = tree3dField(`leaf${which}Preview`);
+        const shownSide = side === 'both' ? (which === 'New' ? 'right' : 'left') : side;
+        if (preview) {
+            preview.style.setProperty('--leaf-colour', colour);
+            const size = (0.5 + scale * 0.3).toFixed(2);
+            preview.style.transform = `scale(${shownSide === 'left' ? -size : size}, ${size})`;
+        }
+        const caption = tree3dField(`leaf${which}Caption`);
+        if (caption) caption.textContent = `${which === 'New' ? 'New' : 'Older'} leaf, ${shownSide}`;
+        for (const swatch of tree3dField(`leaf${which}Swatches`)?.children || []) {
+            swatch.setAttribute('aria-pressed', String(swatch.dataset.colour === colour));
+        }
+    }
 }
 
 // Rain area only applies to live weather; time of day and rain only to manual weather.
@@ -98,6 +173,7 @@ async function loadTree3dRainAreas() {
 function fillTree3dForm(settings) {
     const s = { ...TREE3D_DEFAULTS, ...(settings || {}) };
     const box = { ...TREE3D_TITLE_DEFAULTS, ...(settings?.titleBox || {}) };
+    const leaves = { ...TREE3D_LEAF_DEFAULTS, ...(settings || {}) };
 
     tree3dField('weatherSource').value = s.weatherSource;
     tree3dField('manualSky').value = s.manualSky;
@@ -113,6 +189,16 @@ function fillTree3dForm(settings) {
     tree3dField('showControlsBar').checked = s.showControlsBar !== false;
     tree3dField('showYearReview').checked = s.showYearReview !== false;
 
+    tree3dField('showFeedbackLeaves').checked = leaves.showFeedbackLeaves !== false;
+    // A colour saved before the greens-only choice falls back to the default green.
+    const offered = (which, hex) => TREE3D_LEAF_COLOURS[which].some(([, value]) => value === String(hex).toLowerCase());
+    tree3dField('leafNewColor').value = offered('New', leaves.leafNewColor) ? leaves.leafNewColor.toLowerCase() : TREE3D_LEAF_DEFAULTS.leafNewColor;
+    tree3dField('leafOldColor').value = offered('Old', leaves.leafOldColor) ? leaves.leafOldColor.toLowerCase() : TREE3D_LEAF_DEFAULTS.leafOldColor;
+    tree3dField('leafSide').value = ['both', 'left', 'right'].includes(leaves.leafSide) ? leaves.leafSide : 'both';
+    tree3dField('leafNewHours').value = leaves.leafNewHours;
+    tree3dField('leafScale').value = leaves.leafScale;
+    tree3dField('maxLeaves').value = leaves.maxLeaves;
+
     tree3dField('showTitleBox').checked = box.showTitleBox !== false;
     tree3dField('titleText').value = box.titleText;
     tree3dField('subtitleText').value = box.subtitleText;
@@ -125,6 +211,8 @@ function fillTree3dForm(settings) {
 
     updateTree3dRangeLabels();
     updateTree3dWeatherFields();
+    renderTree3dLeafSwatches();
+    updateTree3dLeafPreview();
 }
 
 function collectTree3dSettings() {
@@ -146,6 +234,13 @@ function collectTree3dSettings() {
         showRiverPanel: tree3dField('showRiverPanel').checked,
         showControlsBar: tree3dField('showControlsBar').checked,
         showYearReview: tree3dField('showYearReview').checked,
+        showFeedbackLeaves: tree3dField('showFeedbackLeaves').checked,
+        leafNewColor: tree3dField('leafNewColor').value,
+        leafOldColor: tree3dField('leafOldColor').value,
+        leafSide: tree3dField('leafSide').value,
+        leafNewHours: Number(tree3dField('leafNewHours').value) || 0,
+        leafScale: Number(tree3dField('leafScale').value) || TREE3D_LEAF_DEFAULTS.leafScale,
+        maxLeaves: whole('maxLeaves', TREE3D_LEAF_DEFAULTS.maxLeaves),
         titleBox: {
             showTitleBox: tree3dField('showTitleBox').checked,
             titleText: tree3dField('titleText').value,
@@ -183,9 +278,19 @@ async function saveTree3dSettings() {
     }
 }
 
+// Each section's Reset only resets that section.
+function tree3dLeafValues(settings) {
+    return Object.fromEntries(Object.keys(TREE3D_LEAF_DEFAULTS).map(key => [key, settings[key]]));
+}
+
 async function resetTree3dSettings() {
     const current = collectTree3dSettings();
-    fillTree3dForm({ ...TREE3D_DEFAULTS, titleBox: current.titleBox });
+    fillTree3dForm({ ...TREE3D_DEFAULTS, ...tree3dLeafValues(current), titleBox: current.titleBox });
+    await saveTree3dSettings();
+}
+
+async function resetTree3dLeafSettings() {
+    fillTree3dForm({ ...collectTree3dSettings(), ...TREE3D_LEAF_DEFAULTS });
     await saveTree3dSettings();
 }
 

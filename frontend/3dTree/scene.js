@@ -13,6 +13,7 @@ import { installRiverLevel } from './river-level.js';
 import { createFallingLeaves } from './falling-leaves.js';
 import { refineSceneMaterials, drawingRatio, createFrameBudget } from './render-quality.js';
 import { createTreeView } from './tree-view.js';
+import { addFeedbackLeaves } from './feedback-leaves.js';
 
 // Edit these values for the installation.
 const config = {
@@ -109,6 +110,8 @@ async function start() {
   const tree=addMatteTree(scene,assets.tree,clock);
   const treeBounds=new T.Box3().setFromObject(tree);
   if (treeBounds.isEmpty()) throw new Error('The Stage 4 tree has no renderable geometry.');
+  // One leaf per feedback on the tree, with the 2D tree's leaf animations (feedback-leaves.js).
+  const feedbackLeaves=addFeedbackLeaves({scene,tree,clock,camera,renderer});
 
   const updateHabitat=addForestHabitat(scene,assets,clock,lowQuality,seeded(60331));
   const updateForestWildlife=addForestWildlife(scene,assets.forestWildlife,assets.layout.habitat,clock,lowQuality);
@@ -207,6 +210,7 @@ async function start() {
     weather.update(dt,camera);
     updateRiverLevel(dt);
     leaves.update(elapsed);
+    feedbackLeaves.update(dt,elapsed);
     updateHabitat(elapsed);
     updateForestWildlife(elapsed);
     updateWildlife(elapsed);

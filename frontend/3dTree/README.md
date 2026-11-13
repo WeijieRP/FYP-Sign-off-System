@@ -14,6 +14,8 @@ On a wall-shaped screen such as the 7 m x 2 m display (3.5:1), the camera moves 
 
 **Admin settings.** Admin > Digital Tree Adjustment > 3D Tree Settings sets the weather (live or a manual time of day and rain), the rain area, the river level, the slow orbit, sound and volume, the soil cutaway, which on-screen panels are shown, and the title box (text, opacity, blur, corners, padding, position). `tree3d-settings.js` reads them from `/api/parameters` every 5 seconds and applies a change by operating the page's own controls, so hidden panels still work and someone using the on-screen controls is not overruled until the next change. "Wind gust now" and "Play sunset now" run once on the screen.
 
+**Feedback leaves.** `feedback-leaves.js` puts one leaf per feedback of the year on the tree, using the RainTree leaf model in `/assets/Tree/3dTreeLeaves/`, with the 2D tree's leaf behaviour: each leaf gets its own spot on the outer canopy (random, kept between refreshes, never overlapping) and its own angle; a new feedback's leaf flies in from the bottom middle in a smooth zigzag, starting at twice its size and shrinking to its place; a new visitor's leaf glows green for a minute; past the most leaves allowed, the oldest leaf falls; and Year Review's View Tree shows that year's leaves. New feedback is checked every 5 seconds from `/api/tree`. The admin's 3D Leaf Adjustments set the new and older leaf colours, how long a leaf counts as new, the leaf scale and the most leaves (VIP leaves are not on the 3D tree yet).
+
 A local or hosted HTTP server loads the bundled models. The scene uses WebGL 2. Manual weather works offline when the scene is served locally. Live Singapore needs internet access to the weather feeds.
 
 

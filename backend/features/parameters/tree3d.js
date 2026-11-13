@@ -20,9 +20,22 @@
 //                      action when the time changes
 //   titleBox           the title card: the same settings as the 2D tree's title box, plus 'auto'
 //                      position (the page's own layout: top centre, top left on a wall-shaped screen)
+//   showFeedbackLeaves one leaf per feedback on the tree (the RainTree leaf model)
+//   leafNewColor, leafOldColor
+//                      leaf colours, greens only: a light green for new leaves and a dark green for older
+//                      ones (LEAF_NEW_COLOURS / LEAF_OLD_COLOURS); a leaf counts as new for leafNewHours
+//   leafSide           'both' (left and right leaves mixed, as on the 2D tree), 'left' or 'right'; a left
+//                      leaf is the RainTree leaf model mirrored
+//   leafNewHours       0 to 168 hours
+//   leafScale          size of the leaves on the tree, 0.4 to 2.5 times the standard size
+//   maxLeaves          most leaves on the tree; past that the oldest leaf falls (as leafFallThreshold on 2D)
 
 const SKIES = ['sunrise', 'day', 'sunset', 'night'];
 const RIVER_MODES = ['auto', 'normal', 'high', 'danger'];
+// The leaf colours the admin can choose: light greens for new leaves, dark greens for older leaves.
+const LEAF_NEW_COLOURS = ['#7cb342', '#8bc34a', '#9ccc65', '#a4c639', '#66bb6a'];
+const LEAF_OLD_COLOURS = ['#1f5f2e', '#2e7d32', '#1b5e20', '#33691e', '#2d5a27'];
+const LEAF_SIDES = ['both', 'left', 'right'];
 const TITLE_POSITIONS = ['auto', 'top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right'];
 
 const DEFAULT_TITLE_BOX = Object.freeze({
@@ -53,6 +66,13 @@ const DEFAULT_TREE3D_PARAMETERS = Object.freeze({
   showYearReview: true,
   gustRequestedAt: '',
   sunsetRequestedAt: '',
+  showFeedbackLeaves: true,
+  leafNewColor: '#7cb342',
+  leafOldColor: '#1f5f2e',
+  leafSide: 'both',
+  leafNewHours: 24,
+  leafScale: 1,
+  maxLeaves: 15,
   titleBox: DEFAULT_TITLE_BOX
 });
 
@@ -84,6 +104,12 @@ function text(value, maxLength) {
   return String(value ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, maxLength);
 }
 
+function colour(value, allowed, name) {
+  const hex = String(value ?? '').trim().toLowerCase();
+  if (!allowed.includes(hex)) throw badRequest(`${name} must be one of the offered greens: ${allowed.join(', ')}`);
+  return hex;
+}
+
 function timestamp(value, name) {
   const raw = String(value ?? '').trim();
   if (!raw) return '';
@@ -113,6 +139,13 @@ function normalizeTree3dParameters(updates) {
   }
   if (has('gustRequestedAt')) out.gustRequestedAt = timestamp(updates.gustRequestedAt, 'Wind gust time');
   if (has('sunsetRequestedAt')) out.sunsetRequestedAt = timestamp(updates.sunsetRequestedAt, 'Sunset time');
+  if (has('showFeedbackLeaves')) out.showFeedbackLeaves = bool(updates.showFeedbackLeaves, 'Show leaves');
+  if (has('leafNewColor')) out.leafNewColor = colour(updates.leafNewColor, LEAF_NEW_COLOURS, 'New leaf colour');
+  if (has('leafOldColor')) out.leafOldColor = colour(updates.leafOldColor, LEAF_OLD_COLOURS, 'Older leaf colour');
+  if (has('leafSide')) out.leafSide = oneOf(updates.leafSide, LEAF_SIDES, 'Leaf side');
+  if (has('leafNewHours')) out.leafNewHours = Math.round(number(updates.leafNewHours, 0, 168, 'New leaf hours') * 10) / 10;
+  if (has('leafScale')) out.leafScale = Math.round(number(updates.leafScale, 0.4, 2.5, 'Leaf scale') * 100) / 100;
+  if (has('maxLeaves')) out.maxLeaves = Math.round(number(updates.maxLeaves, 1, 200, 'Most leaves on the tree'));
 
   if (has('titleBox')) {
     const box = updates.titleBox;
@@ -144,6 +177,8 @@ function mergeTree3dParameters(current, changes) {
 }
 
 module.exports = {
+  LEAF_NEW_COLOURS,
+  LEAF_OLD_COLOURS,
   DEFAULT_TREE3D_PARAMETERS,
   DEFAULT_TITLE_BOX,
   normalizeTree3dParameters,

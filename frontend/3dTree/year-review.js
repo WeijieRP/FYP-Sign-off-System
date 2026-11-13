@@ -101,6 +101,13 @@ async function fetchLeafCount(year) {
   }
 }
 
+// Tells the feedback leaves on the 3D tree (feedback-leaves.js) which year to show.
+function announceYear() {
+  document.dispatchEvent(new CustomEvent('esg-tree-year', {
+    detail: { year: state.selectedYear, live: !state.isReviewMode },
+  }));
+}
+
 function updateTreeHeading() {
   if (!heading) return;
   if (state.isReviewMode) {
@@ -200,6 +207,7 @@ async function viewReviewYear() {
   state.reviewLeafCount = await fetchLeafCount(state.selectedYear);
   updateTreeHeading();
   renderYearReviewBook();
+  announceYear();
 }
 
 function viewLiveYear() {
@@ -207,6 +215,7 @@ function viewLiveYear() {
   state.isReviewMode = false;
   updateTreeHeading();
   renderYearReviewBook();
+  announceYear();
 }
 
 if (ui.toggle && ui.book) {

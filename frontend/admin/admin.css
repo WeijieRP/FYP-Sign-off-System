@@ -8051,3 +8051,60 @@ input:checked + .slider:before {
     .health-card, .policy-rules-more summary::before { transition: none; }
 }
 /* <Jun Kai end> */
+
+/* 3D Leaf Adjustments (admin/js/tree3d.js): colour swatches and a preview of the RainTree leaf in the
+   chosen colour. The leaf picture is grey, so the colour shows through it with its veins. */
+.leaf3d-swatches {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.leaf3d-swatch {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: 2px solid #ffffff;
+    box-shadow: 0 0 0 1px #cbd5e1;
+    cursor: pointer;
+    padding: 0;
+}
+
+.leaf3d-swatch[aria-pressed="true"] {
+    box-shadow: 0 0 0 2px #0f172a;
+}
+
+.leaf3d-swatch:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+}
+
+.leaf3d-preview-frame {
+    width: 120px;
+    height: 120px;
+    display: grid;
+    place-items: center;
+    border: 1px solid #e6e9ef;
+    border-radius: 8px;
+    background: #f8fafc;
+    overflow: hidden;
+}
+
+.leaf3d-preview {
+    position: relative;
+    width: 100px;
+    height: 66px;
+    background-color: var(--leaf-colour, #43a047);
+    -webkit-mask: url('/assets/Tree/3dTreeLeaves/leaf-preview.png') center / contain no-repeat;
+    mask: url('/assets/Tree/3dTreeLeaves/leaf-preview.png') center / contain no-repeat;
+    filter: brightness(1.35);
+    transition: transform 0.15s ease;
+}
+
+.leaf3d-preview::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: url('/assets/Tree/3dTreeLeaves/leaf-preview.png') center / contain no-repeat;
+    mix-blend-mode: multiply;
+}

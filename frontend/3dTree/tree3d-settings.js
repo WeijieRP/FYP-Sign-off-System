@@ -16,6 +16,7 @@ const DEFAULTS = {
   autoOrbit: true, soundEnabled: false, soundVolume: 78, showSoilPanel: false,
   showWeatherPanel: true, showRiverPanel: true, showControlsBar: true, showYearReview: true,
   gustRequestedAt: '', sunsetRequestedAt: '',
+  showFeedbackLeaves: true, leafNewColor: '#7cb342', leafOldColor: '#1f5f2e', leafSide: 'both', leafNewHours: 24, leafScale: 1, maxLeaves: 15,
   titleBox: {
     showTitleBox: true, titleText: 'ESG Tree', subtitleText: DEFAULT_SUBTITLE,
     opacity: 0.54, blur: 18, radius: 20, position: 'auto', paddingX: 22, paddingY: 12,
@@ -42,6 +43,14 @@ const controls = {
 
 const applied = {};          // the last value of each setting that was applied
 let latest = null;           // the latest settings from the server
+const listeners = new Set(); // other parts of the page that use the settings (feedback-leaves.js)
+
+// Calls `listener` with the settings now (when loaded) and after every check. Returns an unsubscribe.
+export function onTree3dSettings(listener) {
+  listeners.add(listener);
+  if (latest) listener(latest);
+  return () => listeners.delete(listener);
+}
 let lastActions = null;      // action times seen so far; the first ones only set the starting point
 let soundRetryArmed = false;
 
@@ -230,6 +239,9 @@ async function refresh() {
     applyTitleBox(latest.titleBox);
     applyPanels(latest);
     applyControls(latest);
+    for (const listener of listeners) {
+      try { listener(latest); } catch (error) { console.warn('A 3D settings listener failed.', error); }
+    }
   } catch (error) {
     console.warn('3D tree settings could not be loaded; the page keeps its current settings.', error);
   }

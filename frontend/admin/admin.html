@@ -1309,6 +1309,78 @@
                             </div>
                         </div>
                         <br>
+                        <!-- 3D Leaf Adjustments: the feedback leaves on the 3D tree (frontend/3dTree/feedback-leaves.js).
+                             The leaf is the RainTree model in /assets/Tree/3dTreeLeaves; it is coloured, not uploaded. -->
+                        <div class="tree-adjustment-section">
+                            <div class="section-header">
+                                <h3>3D Leaf Adjustments</h3>
+                                <div style="display:flex; gap:10px; align-items:center;">
+                                    <button class="btn-primary" onclick="saveTree3dSettings()">Save 3D Leaves</button>
+                                    <button class="btn-primary" onclick="resetTree3dLeafSettings()">Reset to Defaults</button>
+                                </div>
+                            </div>
+                            <div class="section-body">
+                                <label style="display:flex; align-items:center; gap:10px; font-weight:600; color:#334155; margin-bottom:6px;">
+                                    <input type="checkbox" id="tree3d-showFeedbackLeaves"> Show a leaf for each feedback on the 3D tree
+                                </label>
+                                <p style="font-size:12px; color:#666; margin:0 0 16px;">The leaf is the RainTree leaf model. A new feedback's leaf flies in, a new visitor's leaf glows for a minute, and past the most leaves the oldest leaf falls, as on the 2D tree.</p>
+                                <div style="display:flex; gap:28px; flex-wrap:wrap; align-items:flex-start;">
+                                    <div style="flex:1; min-width:300px;">
+                                        <div style="margin-bottom:16px;">
+                                            <span style="display:block; font-weight:600; color:#334155; margin-bottom:6px;">New leaves: light green</span>
+                                            <div class="leaf3d-swatches" id="tree3d-leafNewSwatches" role="group" aria-label="New leaf colour, light greens"></div>
+                                            <input type="hidden" id="tree3d-leafNewColor" value="#7cb342">
+                                        </div>
+                                        <div style="margin-bottom:16px;">
+                                            <span style="display:block; font-weight:600; color:#334155; margin-bottom:6px;">Older leaves: dark green</span>
+                                            <div class="leaf3d-swatches" id="tree3d-leafOldSwatches" role="group" aria-label="Older leaf colour, dark greens"></div>
+                                            <input type="hidden" id="tree3d-leafOldColor" value="#1f5f2e">
+                                        </div>
+                                        <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:14px 24px;">
+                                            <div>
+                                                <label for="tree3d-leafSide" style="display:block; font-weight:600; color:#334155; margin-bottom:4px;">Left or right leaves</label>
+                                                <select id="tree3d-leafSide" onchange="updateTree3dLeafPreview()" style="width:100%; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px;">
+                                                    <option value="both">Left and right mixed (as the 2D tree)</option>
+                                                    <option value="left">Left leaves only</option>
+                                                    <option value="right">Right leaves only</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label for="tree3d-leafNewHours" style="display:block; font-weight:600; color:#334155; margin-bottom:4px;">A leaf counts as new for</label>
+                                                <div style="display:flex; align-items:center; gap:8px;">
+                                                    <input type="number" id="tree3d-leafNewHours" min="0" max="168" step="1" value="24" style="width:90px;">
+                                                    <span>hours</span>
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label for="tree3d-maxLeaves" style="display:block; font-weight:600; color:#334155; margin-bottom:4px;">Most leaves on the tree</label>
+                                                <input type="number" id="tree3d-maxLeaves" min="1" max="200" step="1" value="15" style="width:90px;">
+                                                <p style="font-size:12px; color:#666; margin-top:4px;">Past this, the oldest leaf falls.</p>
+                                            </div>
+                                            <div>
+                                                <label for="tree3d-leafScale" style="display:block; font-weight:600; color:#334155; margin-bottom:4px;">Leaf scale</label>
+                                                <div style="display:flex; align-items:center; gap:8px;">
+                                                    <input type="range" id="tree3d-leafScale" min="0.4" max="2.5" step="0.05" value="1" oninput="updateTree3dLeafPreview()">
+                                                    <span id="tree3d-leafScaleValue">1</span>
+                                                </div>
+                                                <p style="font-size:12px; color:#666; margin-top:4px;">Size of the leaves on the 3D tree (1 = standard).</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div style="display:flex; gap:18px; text-align:center;">
+                                        <div>
+                                            <div class="leaf3d-preview-frame"><div class="leaf3d-preview" id="tree3d-leafNewPreview"></div></div>
+                                            <p id="tree3d-leafNewCaption" style="font-size:12px; color:#666; margin-top:6px;">New leaf</p>
+                                        </div>
+                                        <div>
+                                            <div class="leaf3d-preview-frame"><div class="leaf3d-preview" id="tree3d-leafOldPreview"></div></div>
+                                            <p id="tree3d-leafOldCaption" style="font-size:12px; color:#666; margin-top:6px;">Older leaf</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <br>
                         <div class="tree-adjustment-section">
                             <div class="section-header">
                                 <h3>3D Tree Title Box Settings</h3>
