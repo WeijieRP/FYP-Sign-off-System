@@ -17,16 +17,6 @@ button { font: inherit; }
               linear-gradient(0deg, #10251d87, transparent 22%);
 }
 canvas { width: 100%; height: 100%; display: block; }
-/* Still picture over the canvas until the first live frame, then a slow cross-fade into the 3D scene. */
-.poster {
-  position: absolute; inset: 0; width: 100%; height: 100%;
-  object-fit: cover; pointer-events: none;
-}
-.poster:not([src]) { visibility: hidden; }
-.reserve[data-ready="true"] .poster {
-  opacity: 0; visibility: hidden;
-  transition: opacity 1.4s ease, visibility 0s linear 1.4s;
-}
 #landscape { touch-action: none; }
 #landscape:focus-visible { outline: 2px solid #ecd797; outline-offset: -3px; }
 .masthead {

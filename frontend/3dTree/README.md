@@ -8,8 +8,6 @@ A self-contained web scene for the ESG Centre tree screen. The centrepiece is th
 2. In the project, start the servers (`node startAll.js`), set Admin → Digital Tree Adjustment → Display 2D/3D Tree to **3D Tree**, and open `/3dTree`. On its own, open `3dTree.html` with **Live Server** (remove its `<base href="/3dTree/">` line first). With Python installed, you can also run `py -m http.server 8000` in the extracted folder and visit `http://localhost:8000/`.
 3. The opening view centres the Ketapang, with the river, banks and forest visible across the 7 m × 2 m display. **Enable sound** starts the ambience. **Wind now** previews a gust.
 
-While the 3D scene builds, the page shows a still picture of it straight away and then cross-fades into the live view, so no loading screen appears. The still is the last view this screen showed (saved in the browser a few seconds after the scene appears and every ten minutes), or `assets/poster.jpg` on a first visit (`assets/poster-wall.jpg` on a wall-shaped screen). To remake them, capture the page opened with `?clean=1&weather=manual` at 1920 x 1080 and at 2800 x 800.
-
 On a wall-shaped screen such as the 7 m x 2 m display (3.5:1), the camera moves closer and aims a little lower so the tree fills the height as the main focus (`wallDistance` and `wallAimDrop` in `tree-view.js`), and the panels move to the sides (the `min-aspect-ratio: 12/5` rule at the end of `scene.css`). Ordinary screens keep the original view.
 
 A local or hosted HTTP server loads the bundled models. The scene uses WebGL 2. Manual weather works offline when the scene is served locally. Live Singapore needs internet access to the weather feeds.

@@ -18,22 +18,6 @@
       <canvas id="landscape" tabindex="0" aria-label="The ESG Tree and animated river"
         aria-describedby="tree-view-help"></canvas>
       <span id="tree-view-help" class="access">Drag or use the arrow keys to orbit the tree. Scroll, pinch, or use plus and minus to zoom.</span>
-      <!-- A still of the scene, shown at once while the 3D scene builds, then faded into the live view.
-           It is the last view this screen showed (saved by scene.js), or the bundled picture on a first visit. -->
-      <img id="poster" class="poster" alt="" aria-hidden="true" decoding="sync">
-      <script>
-        (function () {
-          var poster = document.getElementById('poster');
-          // The wall-shaped picture on a wide display such as the 7 m x 2 m wall (3.5:1).
-          var fallback = innerWidth / Math.max(1, innerHeight) >= 2.4 ? './assets/poster-wall.jpg' : './assets/poster.jpg';
-          if (!window.caches) { poster.src = fallback; return; }
-          caches.open('esg-tree-3d')
-            .then(function (cache) { return cache.match('./assets/poster-live.jpg'); })
-            .then(function (saved) { return saved ? saved.blob() : null; })
-            .then(function (blob) { poster.src = blob ? URL.createObjectURL(blob) : fallback; })
-            .catch(function () { poster.src = fallback; });
-        })();
-      </script>
     </div>
 
     <header class="masthead glass-card" tabindex="0" aria-label="ESG Centre, ESG Tree">
@@ -110,10 +94,9 @@
       </div>
     </div>
 
-    <!-- Hidden while the scene builds behind the still picture; shown only if the 3D view cannot load. -->
-    <div id="loading" class="loading" role="status" hidden>
+    <div id="loading" class="loading" role="status">
       <span class="loader" aria-hidden="true"></span>
-      <div><strong>Preparing the ESG Tree</strong><span id="loading-detail">Loading the tree and river models</span></div>
+      <div><strong>Preparing the river</strong><span id="loading-detail">Loading the full-grown Ketapang and river models</span></div>
     </div>
 
     <section id="soil-panel" class="glass-card soil-panel" aria-labelledby="soil-title" hidden>

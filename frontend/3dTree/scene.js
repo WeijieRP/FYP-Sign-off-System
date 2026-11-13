@@ -215,37 +215,16 @@ async function start() {
       ambient.update(soundPan(bird),Math.max(0,camera.position.y-1.2),clock.gust.value,clock.rain.value,clock.night.value);
     }
     renderer.render(scene,camera);
-    // Saved right after drawing, while the frame is still in the canvas.
-    if (performance.now()>=nextPosterSave) {
-      nextPosterSave=performance.now()+posterSaveEvery;
-      savePoster();
-    }
     updateSoilView(dt);
-    if (root.dataset.ready!=='true') {
+    if (!loading.hidden) {
+      loading.hidden = true;
       root.dataset.ready = 'true';
-      nextPosterSave=performance.now()+posterFirstSave;
     }
   });
 }
 
-// The still picture shown while the scene builds (see 3dTree.html) is this screen's own last view,
-// saved a few seconds after the scene appears and every ten minutes, so it matches the time of day.
-const posterFirstSave=6000, posterSaveEvery=10*60*1000;
-let nextPosterSave=Infinity;
-function savePoster() {
-  if (!window.caches) return;
-  canvas.toBlob(blob=>{
-    if (!blob) return;
-    caches.open('esg-tree-3d')
-      .then(cache=>cache.put('./assets/poster-live.jpg',new Response(blob,{headers:{'Content-Type':'image/jpeg'}})))
-      .catch(()=>{});
-  },'image/jpeg',.86);
-}
-
 start().catch(error => {
   console.error(error);
-  loading.hidden = false;
-  document.querySelector('#poster')?.remove();
   loading.classList.add('error');
   loading.querySelector('strong').textContent = '3D view unavailable';
   loadingDetail.textContent = /WebGL context/i.test(error.message)
