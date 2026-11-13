@@ -685,3 +685,15 @@ body[data-weather="sunset"], body[data-weather="sunrise"] { --glass-glow: 252,18
     .year-review-toggle { right: auto; left: 12px; bottom: 122px; }
     .year-review-book { right: auto; left: 12px; bottom: 174px; transform-origin: bottom left; }
 }
+
+/* =========================
+   ADMIN SETTINGS (tree3d-settings.js)
+   Panels the admin turned off in 3D Tree Settings, and room for a title box moved into a corner.
+   ========================= */
+.hide-weather-panel .weather-panel,
+.hide-river-panel .river-monitor,
+.hide-controls-bar .dock,
+.hide-year-review .year-review-toggle,
+.hide-year-review .year-review-book { display: none; }
+.title-at-top-left .river-monitor { top: var(--title-clearance, 150px); }
+.title-at-top-right .weather-panel { top: var(--title-clearance, 150px); }

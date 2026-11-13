@@ -898,6 +898,10 @@
                         <button class="tree-tab" onclick="switchTreeTab('tree-parameters-tab')">
                             🌳 Tree Parameters Settings
                         </button>
+
+                        <button class="tree-tab" onclick="switchTreeTab('tree3d-settings-tab')">
+                            3D Tree Settings
+                        </button>
                     </div>
 
                     <div id="tree-elements-tab" class="tree-tab-content active">
@@ -1202,6 +1206,180 @@
                                         <option value="3d">3D Tree</option>
                                     </select>
                                     <p style="font-size:12px;color:#666;margin-top:6px;">Only the selected route stays live; the other route returns blocked.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 3D Tree Settings (Role 2, Wei Jie): the controls of the /3dTree page and its title box.
+                         Saved as tree3dParameters (backend/features/parameters/tree3d.js) by admin/js/tree3d.js;
+                         the 3D page applies them within a few seconds (frontend/3dTree/tree3d-settings.js). -->
+                    <div id="tree3d-settings-tab" class="tree-tab-content">
+                        <div class="tree-adjustment-section">
+                            <div class="section-header">
+                                <h3>3D Scene Controls</h3>
+                                <div style="display:flex; gap:10px; align-items:center;">
+                                    <button class="btn-primary" onclick="saveTree3dSettings()">Save 3D Settings</button>
+                                    <button class="btn-primary" onclick="resetTree3dSettings()">Reset to Defaults</button>
+                                </div>
+                            </div>
+                            <div class="section-body">
+                                <p style="font-size:12px; color:#666; margin:0 0 14px;">These are the controls shown on the /3dTree screen. The screen applies a saved change within about 5 seconds. Someone using the on-screen controls is not overruled until the next change here.</p>
+                                <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap:18px 24px;">
+                                    <div>
+                                        <label for="tree3d-weatherSource" style="display:block; font-weight:600; color:#334155; margin-bottom:4px;">Weather</label>
+                                        <select id="tree3d-weatherSource" onchange="updateTree3dWeatherFields()" style="width:100%; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px;">
+                                            <option value="live">Live Singapore weather</option>
+                                            <option value="manual">Manual</option>
+                                        </select>
+                                        <p style="font-size:12px; color:#666; margin-top:6px;">Live follows the time of day and the rain in Singapore.</p>
+                                    </div>
+                                    <div>
+                                        <label for="tree3d-rainArea" style="display:block; font-weight:600; color:#334155; margin-bottom:4px;">Rain area (live weather)</label>
+                                        <select id="tree3d-rainArea" style="width:100%; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px;">
+                                            <option value="all">All Singapore</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label for="tree3d-manualSky" style="display:block; font-weight:600; color:#334155; margin-bottom:4px;">Time of day (manual weather)</label>
+                                        <select id="tree3d-manualSky" style="width:100%; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px;">
+                                            <option value="sunrise">Sunrise</option>
+                                            <option value="day">Day</option>
+                                            <option value="sunset">Sunset</option>
+                                            <option value="night">Night</option>
+                                        </select>
+                                        <label style="display:flex; align-items:center; gap:8px; margin-top:8px; color:#334155;">
+                                            <input type="checkbox" id="tree3d-manualRain"> Rain and thunder
+                                        </label>
+                                    </div>
+                                    <div>
+                                        <label for="tree3d-riverLevelMode" style="display:block; font-weight:600; color:#334155; margin-bottom:4px;">River level</label>
+                                        <select id="tree3d-riverLevelMode" style="width:100%; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px;">
+                                            <option value="auto">Auto (follows the rain)</option>
+                                            <option value="normal">Preview Normal</option>
+                                            <option value="high">Preview High</option>
+                                            <option value="danger">Preview Danger</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <span style="display:block; font-weight:600; color:#334155; margin-bottom:4px;">Motion</span>
+                                        <label style="display:flex; align-items:center; gap:8px; color:#334155;">
+                                            <input type="checkbox" id="tree3d-autoOrbit"> Slow automatic orbit (24h turn)
+                                        </label>
+                                        <label style="display:flex; align-items:center; gap:8px; margin-top:8px; color:#334155;">
+                                            <input type="checkbox" id="tree3d-showSoilPanel"> Show the soil life cutaway
+                                        </label>
+                                    </div>
+                                    <div>
+                                        <span style="display:block; font-weight:600; color:#334155; margin-bottom:4px;">Sound</span>
+                                        <label style="display:flex; align-items:center; gap:8px; color:#334155;">
+                                            <input type="checkbox" id="tree3d-soundEnabled"> River, wind, birds and weather sounds
+                                        </label>
+                                        <div style="display:flex; align-items:center; gap:10px; margin-top:8px;">
+                                            <label for="tree3d-soundVolume" style="color:#334155;">Volume</label>
+                                            <input type="range" id="tree3d-soundVolume" min="0" max="100" step="1" value="78" oninput="updateTree3dRangeLabels()">
+                                            <span id="tree3d-soundVolumeValue">78</span>
+                                        </div>
+                                        <p style="font-size:12px; color:#666; margin-top:6px;">Browsers start sound after the first touch on the screen, unless the kiosk browser allows autoplay.</p>
+                                    </div>
+                                    <div>
+                                        <span style="display:block; font-weight:600; color:#334155; margin-bottom:4px;">On-screen panels</span>
+                                        <label style="display:flex; align-items:center; gap:8px; color:#334155;">
+                                            <input type="checkbox" id="tree3d-showWeatherPanel"> Weather panel
+                                        </label>
+                                        <label style="display:flex; align-items:center; gap:8px; margin-top:6px; color:#334155;">
+                                            <input type="checkbox" id="tree3d-showRiverPanel"> River level panel
+                                        </label>
+                                        <label style="display:flex; align-items:center; gap:8px; margin-top:6px; color:#334155;">
+                                            <input type="checkbox" id="tree3d-showControlsBar"> Controls bar (sound, orbit, wind, soil, full screen)
+                                        </label>
+                                        <label style="display:flex; align-items:center; gap:8px; margin-top:6px; color:#334155;">
+                                            <input type="checkbox" id="tree3d-showYearReview"> Year Review button
+                                        </label>
+                                        <p style="font-size:12px; color:#666; margin-top:6px;">Hidden panels keep working from this page.</p>
+                                    </div>
+                                    <div>
+                                        <span style="display:block; font-weight:600; color:#334155; margin-bottom:4px;">Run now on the 3D screen</span>
+                                        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                                            <button class="btn-primary" type="button" onclick="triggerTree3dAction('gust')">Wind gust now</button>
+                                            <button class="btn-primary" type="button" onclick="triggerTree3dAction('sunset')">Play sunset now</button>
+                                        </div>
+                                        <p style="font-size:12px; color:#666; margin-top:6px;">Play sunset eases into night and stays there until the weather settings are saved again.</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <br>
+                        <div class="tree-adjustment-section">
+                            <div class="section-header">
+                                <h3>3D Tree Title Box Settings</h3>
+                                <div style="display:flex; gap:10px; align-items:center;">
+                                    <button class="btn-primary" onclick="saveTree3dSettings()">Save 3D Title Box</button>
+                                    <button class="btn-primary" onclick="resetTree3dTitleSettings()">Reset to Defaults</button>
+                                </div>
+                            </div>
+                            <div class="section-body">
+                                <label style="display:flex; align-items:center; gap:10px; font-weight:600; color:#334155; margin-bottom:16px;">
+                                    <input type="checkbox" id="tree3d-showTitleBox"> Display 3D Tree Title Box
+                                </label>
+                                <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap:16px 24px;">
+                                    <div>
+                                        <label for="tree3d-titleOpacity">Background Opacity</label>
+                                        <div style="display:flex;align-items:center;gap:10px;">
+                                            <input type="range" id="tree3d-titleOpacity" min="0" max="1" step="0.01" value="0.54" oninput="updateTree3dRangeLabels()">
+                                            <span id="tree3d-titleOpacityValue">0.54</span>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label for="tree3d-titleBlur">Blur Amount (px)</label>
+                                        <div style="display:flex;align-items:center;gap:10px;">
+                                            <input type="range" id="tree3d-titleBlur" min="0" max="40" step="1" value="18" oninput="updateTree3dRangeLabels()">
+                                            <span id="tree3d-titleBlurValue">18px</span>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label for="tree3d-titleRadius">Border Radius (px)</label>
+                                        <div style="display:flex;align-items:center;gap:10px;">
+                                            <input type="range" id="tree3d-titleRadius" min="0" max="60" step="1" value="20" oninput="updateTree3dRangeLabels()">
+                                            <span id="tree3d-titleRadiusValue">20px</span>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label for="tree3d-titlePaddingX">Horizontal Padding (px)</label>
+                                        <div style="display:flex;align-items:center;gap:10px;">
+                                            <input type="number" id="tree3d-titlePaddingX" value="22" min="0" max="100">
+                                            <span>px</span>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label for="tree3d-titlePaddingY">Vertical Padding (px)</label>
+                                        <div style="display:flex;align-items:center;gap:10px;">
+                                            <input type="number" id="tree3d-titlePaddingY" value="12" min="0" max="100">
+                                            <span>px</span>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label for="tree3d-titlePosition" style="display:block; font-size:0.9rem; font-weight:500; color:#334155; margin-bottom:4px;">Position</label>
+                                        <select id="tree3d-titlePosition" style="width:100%; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px;">
+                                            <option value="auto" selected>Automatic (top centre; top left on the wall)</option>
+                                            <option value="top-left">Top Left</option>
+                                            <option value="top-center">Top Center</option>
+                                            <option value="top-right">Top Right</option>
+                                            <option value="bottom-left">Bottom Left</option>
+                                            <option value="bottom-center">Bottom Center</option>
+                                            <option value="bottom-right">Bottom Right</option>
+                                        </select>
+                                    </div>
+                                    <div style="grid-column: 1 / -1;">
+                                        <label for="tree3d-titleText" style="display:block; font-size:0.9rem; font-weight:500; color:#334155; margin-bottom:4px;">Title Text</label>
+                                        <input type="text" id="tree3d-titleText" value="ESG Tree" maxlength="80"
+                                            style="width:30%; min-width:240px; height:40px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px;">
+                                    </div>
+                                    <div style="grid-column: 1 / -1;">
+                                        <label for="tree3d-subtitleText" style="display:block; font-size:0.9rem; font-weight:500; color:#334155; margin-bottom:4px;">Subtitle Text</label>
+                                        <input type="text" id="tree3d-subtitleText" value="Terminalia catappa · A living river valley" maxlength="160"
+                                            style="width:30%; min-width:240px; height:40px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px;">
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -3889,6 +4067,7 @@
     <script src="/admin/js/feedbackDeletion.js"></script>
     <script src="/admin/js/navigation.js"></script>
     <script src="/admin/js/tree.js"></script>
+    <script src="/admin/js/tree3d.js"></script>
     <script src="/admin/js/init.js"></script>
     <script src="/admin/js/themes.js"></script>
     <script src="/admin/js/archiveDeletion.js"></script>

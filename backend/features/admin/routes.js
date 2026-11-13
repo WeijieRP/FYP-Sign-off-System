@@ -269,6 +269,7 @@ const {
 const badgeEmailTemplateStore = require('../email/templateStore');
 const assetStore = require('../assets/store');
 const parametersConfigStore = require('../parameters/store');
+const { normalizeTree3dParameters, mergeTree3dParameters } = require('../parameters/tree3d');
 const dataRetentionCleanup = require('../archive/retention');
 const feedbackAnalysisCacheStore = require('../analysis/cacheStore');
 
@@ -6920,6 +6921,7 @@ router.put('/parameters/:category', auth.requireAdmin, (req, res) => {
       'featureFlags',
       'validationRules',
       'treeParameters',
+      'tree3dParameters',
       'feedbackPageStyle',
       'badgeLeafStyles',
       'photoSettings',
@@ -6941,6 +6943,9 @@ router.put('/parameters/:category', auth.requireAdmin, (req, res) => {
       normalizedUpdates = normalizeArchiveSettings(updates);
     } else if (category === 'feedbackPageStyle') {
       normalizedUpdates = normalizeFeedbackPageStyle(updates);
+    } else if (category === 'tree3dParameters') {
+      // 3D ESG Tree settings: checked, and merged with the stored ones so the title box keeps unsent fields.
+      normalizedUpdates = mergeTree3dParameters(config.tree3dParameters, normalizeTree3dParameters(updates));
     } else if (category === 'badgeLeafStyles') {
       const normalizedBadgeUpdates = normalizeBadgeLeafStyles(updates);
       normalizedUpdates = {

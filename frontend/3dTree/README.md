@@ -12,6 +12,8 @@ On a wall-shaped screen such as the 7 m x 2 m display (3.5:1), the camera moves 
 
 **Year Review.** The bottom-right button opens the same year review book as the 2D tree (`year-review.js`, styles at the end of `scene.css`): turn through the years, see each year's leaf count, and **View Tree** shows that year's review in the heading; **Live** returns to the live tree. It reads `/api/tree/years` and `/api/tree?year=`.
 
+**Admin settings.** Admin > Digital Tree Adjustment > 3D Tree Settings sets the weather (live or a manual time of day and rain), the rain area, the river level, the slow orbit, sound and volume, the soil cutaway, which on-screen panels are shown, and the title box (text, opacity, blur, corners, padding, position). `tree3d-settings.js` reads them from `/api/parameters` every 5 seconds and applies a change by operating the page's own controls, so hidden panels still work and someone using the on-screen controls is not overruled until the next change. "Wind gust now" and "Play sunset now" run once on the screen.
+
 A local or hosted HTTP server loads the bundled models. The scene uses WebGL 2. Manual weather works offline when the scene is served locally. Live Singapore needs internet access to the weather feeds.
 
 

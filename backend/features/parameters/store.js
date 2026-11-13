@@ -52,6 +52,7 @@
 const fs = require('fs');
 const path = require('path');
 const paths = require('../../core/paths');
+const { DEFAULT_TREE3D_PARAMETERS, mergeTree3dParameters } = require('./tree3d');
 
 const CONFIG_FILE = paths.dataFile('parametersConfig.json');
 
@@ -146,6 +147,8 @@ const DEFAULT_CONFIG = {
     vipLeafDisplayScale: 1,
     showTitleBox: true
   },
+  // 3D ESG Tree page settings (Admin > Digital Tree Adjustment > 3D Tree Settings); see ./tree3d.js
+  tree3dParameters: DEFAULT_TREE3D_PARAMETERS,
   feedbackPageStyle: {
     backgroundCss: "",
     cardOpacity: 0.9,
@@ -220,6 +223,7 @@ function mergeWithDefaults(config) {
     featureFlags: { ...DEFAULT_CONFIG.featureFlags, ...(config.featureFlags || {}) },
     validationRules: { ...DEFAULT_CONFIG.validationRules, ...(config.validationRules || {}) },
     treeParameters: { ...DEFAULT_CONFIG.treeParameters, ...(config.treeParameters || {}) },
+    tree3dParameters: mergeTree3dParameters(config.tree3dParameters, {}),
     feedbackPageStyle: { ...DEFAULT_CONFIG.feedbackPageStyle, ...(config.feedbackPageStyle || {}) },
     badgeLeafStyles: {
       ...DEFAULT_CONFIG.badgeLeafStyles,

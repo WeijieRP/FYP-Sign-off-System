@@ -6,11 +6,11 @@
 
 - backend/features/tree/routes.js
 - frontend/tree/, frontend/3dTree/
-- frontend/admin/js/tree.js (Digital Tree Adjustment tab) and the leaf / background / vip-leaf / treeParameters routes still inside backend/features/admin/routes.js
+- frontend/admin/js/tree.js (Digital Tree Adjustment tab), frontend/admin/js/tree3d.js (its 3D Tree Settings tab), backend/features/parameters/tree3d.js (3D settings defaults and checks), and the leaf / background / vip-leaf / treeParameters routes still inside backend/features/admin/routes.js
 
 **What it does**
 
-The wall display. /api/tree returns this year's visitors as leaves; tree.js places them around the trunk, animates falling leaves and VIP gold leaves, and polls for new feedback. The admin tab controls growth stage, backgrounds, leaf images and the title box. /3dtree is only served when the admin switches the display mode to 3D. The 3D page is the self-contained Ketapang River scene (frontend/3dTree/3dTree.html with scene.js and its modules, three.js bundled in vendor/, models and audio in assets/); see frontend/3dTree/README.md.
+The wall display. /api/tree returns this year's visitors as leaves; tree.js places them around the trunk, animates falling leaves and VIP gold leaves, and polls for new feedback. The admin tab controls growth stage, backgrounds, leaf images and the title box. /3dtree is only served when the admin switches the display mode to 3D. The 3D page is the self-contained Ketapang River scene (frontend/3dTree/3dTree.html with scene.js and its modules, three.js bundled in vendor/, models and audio in assets/); see frontend/3dTree/README.md. The admin's 3D Tree Settings tab sets the 3D page's weather, rain area, river level, orbit, sound, soil cutaway, which on-screen panels show, and its title box (the same settings as the 2D title box); they are saved as `tree3dParameters` through PUT /api/admin/parameters/tree3dParameters and the 3D page (tree3d-settings.js) applies them from /api/parameters within about 5 seconds.
 
 **Routes** (from tests/contracts/routes.snapshot.txt)
 

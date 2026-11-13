@@ -27,6 +27,8 @@ const liveHeading = {
   subtitleHtml: subtitle?.innerHTML || '',
   label: masthead?.getAttribute('aria-label') || '',
 };
+// The admin's 3D title box settings (tree3d-settings.js) change the live heading; "Live" restores that one.
+document.addEventListener('esg-tree-title', event => Object.assign(liveHeading, event.detail));
 
 const state = {
   currentYear: new Date().getFullYear(),

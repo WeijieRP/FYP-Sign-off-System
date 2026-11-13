@@ -303,6 +303,7 @@ function showPage(pageName) {
         loadTreeStageSelection();
         loadTreeTitleSettings();
         updateAutoStagePreview();
+        loadTree3dSettings();
     } else if (pageName === 'pledgeboard') {
         loadAdminPledgeboard();
     } else if (pageName === 'overlay') {
