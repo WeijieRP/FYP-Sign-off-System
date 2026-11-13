@@ -97,6 +97,7 @@
 // ============================================================
 
 // Leaf name font size at Leaf Display Scale 1; the same for every leaf.
+const LEAF_GLOW_FADE_MS = 900; // how long a just-landed leaf takes to fade its neon glow in
 const LEAF_NAME_BASE_FONT_PX = 9;
 
 // How wide a name box may be (% of the leaf box) at a given box height (%) and still stay on the
@@ -249,6 +250,7 @@ class TreeManager {
         this.pendingLandingLeafKeys = new Set();
         this.landingCleanupTimers = new Map();
         this.landingFlights = new Map();
+        this.leafGlowEpochs = new Map(); // leaf key -> when its glow pulse starts (animationClock() time)
         this.renderedLeafKeys = new Set();
         this.leafPositions = new Map();
         this.leafLayoutKey = '';
@@ -1841,7 +1843,16 @@ class TreeManager {
         leaf.style.setProperty('--leaf-angle', `${leafAngle}deg`);
 
         const isFallingLeaf = this.activeLeafCycle?.fallingLeafKeys?.has(leafKey) === true;
-        if (this.pendingLandingLeafKeys.has(leafKey) && !isFallingLeaf) {
+        const isLanding = this.pendingLandingLeafKeys.has(leafKey) && !isFallingLeaf;
+        // Each leaf keeps one glow rhythm, so the pulse carries on smoothly through a refresh.
+        // A leaf still in flight gets its rhythm when it lands.
+        if (!isLanding && !this.leafGlowEpochs.has(leafKey)) {
+            this.leafGlowEpochs.set(leafKey, this.animationClock());
+        }
+        if (this.leafGlowEpochs.has(leafKey)) {
+            leaf.style.setProperty('--leaf-glow-delay', `${Math.round(this.leafGlowEpochs.get(leafKey) - this.animationClock())}ms`);
+        }
+        if (isLanding) {
             this.configureLeafLandingAnimation(leaf, leafKey, position, leafSize, seededRandom, index, visitor);
         }
 
@@ -1884,6 +1895,8 @@ class TreeManager {
         });
 
         this.leavesContainer.appendChild(leaf);
+        // A refresh right after a landing carries on the glow fade-in where it was.
+        if (!isLanding) this.playLeafGlowFadeIn(leaf, leafKey);
     }
 
     // Plans the flight of a new leaf from the bottom of the wall to its spot on the canopy.
@@ -1914,7 +1927,6 @@ class TreeManager {
         const amplitude = Math.min(Math.max(width * 0.16, 180), 460) * (0.75 + random() * 0.5);
         const bank = 12 + random() * 12;
         const yaw = windDirection * (24 + random() * 26);
-        const overshoot = 6 + random() * 6;
         const opacityValue = Number(this.leafOpacity);
         const visibleOpacity = Number.isFinite(opacityValue) ? opacityValue : 0.9;
         const smoothstep = (edge0, edge1, value) => {
@@ -1930,8 +1942,8 @@ class TreeManager {
             const envelope = (1 - s) ** 1.1;
             const weave = windDirection * amplitude * Math.sin(Math.PI * swings * s) * envelope;
             let centerX = startCenterX + ((finalCenterX - startCenterX) * s) + weave;
+            // No overshoot: the leaf glides straight into its spot and slows to a stop there.
             let centerY = startCenterY + ((finalCenterY - startCenterY) * s);
-            centerY -= overshoot * Math.sin(Math.PI * Math.max(0, (s - 0.86) / 0.14)) ** 2;
 
             // Keep the leaf inside the screen; release the clamp at the very end so it lands exactly.
             const margin = halfSizeAt(scaleAt(s));
@@ -1992,16 +2004,75 @@ class TreeManager {
         };
     }
 
+    // The page's animation clock (the time the browser plays animations by), so flights and glow
+    // fades can be pinned to fixed start times and carry on unchanged when the tree is rebuilt.
+    animationClock() {
+        const now = document.timeline?.currentTime;
+        return typeof now === 'number' ? now : performance.now();
+    }
+
+    // The leaf photo's flutter during a flight: a gentle sway that eases in after take-off and
+    // calms to exactly nothing at the landing, so the leaf comes to rest without a snap.
+    planLeafFlutterKeyframes(flight, flip) {
+        const steps = Math.max(60, Math.round(flight.duration / 33));
+        const period = Math.max(600, flight.flutterDuration * 2);
+        const swayY = Math.min(Math.abs(flight.yaw) * 0.45, 22) * Math.sign(flight.yaw || 1);
+        const keyframes = [];
+        for (let step = 0; step <= steps; step += 1) {
+            const t = step / steps;
+            const easeIn = Math.min(1, t / 0.08);
+            const envelope = (easeIn * easeIn * (3 - (2 * easeIn))) * ((1 - t) ** 1.6);
+            const phase = (2 * Math.PI * t * flight.duration) / period;
+            const rotateY = swayY * Math.sin(phase) * envelope;
+            const rotateZ = 4 * Math.sin((phase * 0.5) + 0.8) * envelope;
+            keyframes.push({
+                offset: t,
+                transform: `scaleX(${flip}) rotateY(${rotateY.toFixed(2)}deg) rotateZ(${rotateZ.toFixed(2)}deg)`
+            });
+        }
+        return keyframes;
+    }
+
+    // Fades a just-landed leaf's neon glow in, ending exactly where the glow pulse begins.
+    // Resumed part-way when the tree refreshes during the fade.
+    playLeafGlowFadeIn(leaf, leafKey) {
+        const pulseStartsAt = this.leafGlowEpochs.get(leafKey);
+        if (pulseStartsAt === undefined || typeof leaf.animate !== 'function') return;
+        const fadeStartsAt = pulseStartsAt - LEAF_GLOW_FADE_MS;
+        const elapsed = this.animationClock() - fadeStartsAt;
+        if (elapsed < 0 || elapsed >= LEAF_GLOW_FADE_MS || !leaf.classList.contains('leaf-neon-glow')) return;
+
+        const opacityValue = Number(this.leafOpacity);
+        const visibleOpacity = Number.isFinite(opacityValue) ? opacityValue : 0.9;
+        // The first frame of the leafNeonPulse keyframes in tree.css.
+        const glow = 'drop-shadow(0 0 6px rgba(57, 255, 20, 0.85)) drop-shadow(0 0 18px rgba(57, 255, 20, 0.58))';
+        const timing = { duration: LEAF_GLOW_FADE_MS, easing: 'ease-in-out' };
+        const fade = leaf.animate([
+            { filter: 'drop-shadow(0 8px 12px rgba(12, 50, 27, 0.28)) drop-shadow(0 0 0 rgba(57, 255, 20, 0))', opacity: visibleOpacity },
+            { filter: glow, opacity: 0.82 }
+        ], timing);
+        fade.startTime = fadeStartsAt;
+        try {
+            const halo = leaf.animate([
+                { filter: glow, opacity: 0 },
+                { filter: glow, opacity: 0.82 }
+            ], { ...timing, pseudoElement: '::after' });
+            halo.startTime = fadeStartsAt;
+        } catch {
+            // No pseudo-element animation support: the halo simply appears with the pulse.
+        }
+    }
+
     configureLeafLandingAnimation(leaf, leafKey, position, leafSize, random, index, visitor) {
         // Refreshes rebuild every leaf, so a flight in progress is resumed from where it was.
         let flight = this.landingFlights.get(leafKey);
         if (!flight) {
             flight = this.planLeafLandingFlight(position, leafSize, random, index, visitor);
-            flight.startedAt = performance.now();
+            flight.startedAt = this.animationClock();
             this.landingFlights.set(leafKey, flight);
         }
 
-        const elapsed = performance.now() - flight.startedAt;
+        const elapsed = this.animationClock() - flight.startedAt;
         const remaining = flight.delay + flight.duration - elapsed;
         const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
             && !document.body.classList.contains('tree-demo-motion-active');
@@ -2011,6 +2082,7 @@ class TreeManager {
             this.landingCleanupTimers.delete(leafKey);
         }
 
+        let flutter = null;
         const settleLeaf = (animation) => {
             this.pendingLandingLeafKeys.delete(leafKey);
             this.landingFlights.delete(leafKey);
@@ -2019,9 +2091,16 @@ class TreeManager {
                 this.landingCleanupTimers.delete(leafKey);
             }
             if (!leaf.isConnected && animation) return;
+            // A just-landed leaf fades its glow in; its pulse starts once the fade is done.
+            const glowFadeMs = animation ? LEAF_GLOW_FADE_MS : 0;
+            this.leafGlowEpochs.set(leafKey, this.animationClock() + glowFadeMs);
+            leaf.style.setProperty('--leaf-glow-delay', `${glowFadeMs}ms`);
             leaf.classList.remove('leaf-landing');
             leaf.classList.add('leaf-landed');
+            // Both flight animations end exactly at the leaf's resting state, so removing them changes nothing on screen.
             animation?.cancel();
+            flutter?.cancel();
+            if (animation) this.playLeafGlowFadeIn(leaf, leafKey);
         };
 
         if (reduceMotion || remaining <= 0 || typeof leaf.animate !== 'function') {
@@ -2033,8 +2112,6 @@ class TreeManager {
         leaf.classList.toggle('leaf-demo-landing', flight.isDemo);
         leaf.style.setProperty('--leaf-land-duration', `${flight.duration}ms`);
         leaf.style.setProperty('--leaf-land-delay', `${Math.round(flight.delay - elapsed)}ms`);
-        leaf.style.setProperty('--leaf-land-yaw', `${flight.yaw}deg`);
-        leaf.style.setProperty('--leaf-land-flutter-duration', `${flight.flutterDuration}ms`);
 
         const animation = leaf.animate(flight.keyframes, {
             duration: flight.duration,
@@ -2042,7 +2119,25 @@ class TreeManager {
             easing: 'cubic-bezier(0.4, 0, 0.3, 1)',
             fill: 'both'
         });
-        animation.currentTime = elapsed;
+        // Pinned to the flight's own start on the page clock: a leaf rebuilt by a refresh mid-flight
+        // carries on from exactly the same point, with no jump.
+        animation.startTime = flight.startedAt;
+
+        // The photo flutters as it flies, calming to nothing by the landing.
+        try {
+            const flip = leaf.style.getPropertyValue('--leaf-image-scale-x').trim() === '-1' ? -1 : 1;
+            flutter = leaf.animate(this.planLeafFlutterKeyframes(flight, flip), {
+                duration: flight.duration,
+                delay: flight.delay,
+                easing: 'linear',
+                fill: 'both',
+                pseudoElement: '::before'
+            });
+            flutter.startTime = flight.startedAt;
+        } catch {
+            flutter = null;
+        }
+
         animation.finished
             .then(() => {
                 if (leaf.isConnected) settleLeaf(animation);

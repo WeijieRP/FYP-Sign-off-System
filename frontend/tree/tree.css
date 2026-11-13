@@ -279,9 +279,10 @@ body {
     animation: leafFallShadow var(--leaf-fall-duration, 4200ms) ease-out var(--leaf-fall-delay, 0ms) forwards;
 }
 
+/* The flutter turns the leaf photo about its centre, the same point as the leaf's own angle,
+   so the photo never shifts when a flight or fall starts or ends. */
 .leaf.leaf-falling::before {
     animation: leafFlutter var(--leaf-flutter-duration, 880ms) ease-in-out infinite alternate;
-    transform-origin: 50% 62%;
     will-change: transform;
 }
 
@@ -317,14 +318,10 @@ body {
     animation: leafFlightShadow var(--leaf-land-duration, 3400ms) linear var(--leaf-land-delay, 0ms) both;
 }
 
+/* The flutter is also driven from tree.js: it calms down to nothing by the landing, so the leaf
+   settles without a snap. The name sits in its final place inside the leaf for the whole flight. */
 .leaf.leaf-landing::before {
-    animation: leafLandingFlutter var(--leaf-land-flutter-duration, 900ms) ease-in-out var(--leaf-land-delay, 0ms) infinite alternate;
-    transform-origin: 50% 62%;
     will-change: transform;
-}
-
-.leaf.leaf-landing .leaf-name {
-    animation: leafNameLandReveal var(--leaf-land-duration, 2600ms) ease-out var(--leaf-land-delay, 0ms) both;
 }
 
 .leaf.leaf-landed:not(.leaf-falling) {
@@ -358,6 +355,8 @@ body {
         drop-shadow(0 0 20px rgba(57, 255, 20, 0.72))
         drop-shadow(0 0 34px rgba(57, 255, 20, 0.42));
     animation: leafNeonPulse 2s ease-in-out infinite;
+    /* Set per leaf by tree.js, so the pulse carries on smoothly when the tree refreshes. */
+    animation-delay: var(--leaf-glow-delay, 0ms);
 }
 
 .leaf.leaf-neon-glow:not(.leaf-falling):not(.leaf-landing)::after {
@@ -370,6 +369,7 @@ body {
     background: radial-gradient(circle, rgba(57, 255, 20, 0.32) 0%, rgba(57, 255, 20, 0.14) 38%, transparent 72%);
     mix-blend-mode: screen;
     animation: leafNeonPulse 1.4s ease-in-out infinite;
+    animation-delay: var(--leaf-glow-delay, 0ms);
     filter: blur(3px);
     transform: scale(0.85, 1.05);
 }
@@ -506,32 +506,6 @@ body {
     }
 }
 
-@keyframes leafLandingFlutter {
-    0% {
-        transform: scaleX(var(--leaf-image-scale-x, 1)) rotateY(calc(var(--leaf-land-yaw, 28deg) * -0.7)) rotateZ(-3deg);
-    }
-    50% {
-        transform: scaleX(var(--leaf-image-scale-x, 1)) rotateY(calc(var(--leaf-land-yaw, 28deg) * 0.56)) rotateZ(3deg);
-    }
-    100% {
-        transform: scaleX(var(--leaf-image-scale-x, 1)) rotateY(calc(var(--leaf-land-yaw, 28deg) * -0.3)) rotateZ(-2deg);
-    }
-}
-
-@keyframes leafNameLandReveal {
-    0%, 68% {
-        opacity: 0;
-        transform: translateY(8%) scale(0.74);
-    }
-    86% {
-        opacity: 0.72;
-    }
-    100% {
-        opacity: 1;
-        transform: none;
-    }
-}
-
 @keyframes leafFlutter {
     0% {
         transform: scaleX(var(--leaf-image-scale-x, 1)) rotateY(calc(var(--leaf-fall-yaw, 24deg) * -0.45)) rotateZ(-1deg);
@@ -560,8 +534,6 @@ body {
     .leaf,
     .leaf.leaf-falling,
     .leaf.leaf-landing,
-    .leaf.leaf-landing::before,
-    .leaf.leaf-landing .leaf-name,
     .leaf.leaf-falling::before,
     .leaf.leaf-falling .leaf-name {
         animation-duration: 1ms !important;
@@ -584,14 +556,8 @@ body {
         animation-delay: 0ms !important;
     }
 
-    body.tree-demo-motion-active .leaf.leaf-landing::after,
-    body.tree-demo-motion-active .leaf.leaf-landing .leaf-name {
+    body.tree-demo-motion-active .leaf.leaf-landing::after {
         animation-duration: var(--leaf-land-duration, 3400ms) !important;
-        animation-delay: var(--leaf-land-delay, 0ms) !important;
-    }
-
-    body.tree-demo-motion-active .leaf.leaf-landing::before {
-        animation-duration: var(--leaf-land-flutter-duration, 900ms) !important;
         animation-delay: var(--leaf-land-delay, 0ms) !important;
     }
 }
