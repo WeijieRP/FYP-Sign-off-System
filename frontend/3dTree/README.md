@@ -10,6 +10,8 @@ A self-contained web scene for the ESG Centre tree screen. The centrepiece is th
 
 On a wall-shaped screen such as the 7 m x 2 m display (3.5:1), the camera moves closer and aims a little lower so the tree fills the height as the main focus (`wallDistance` and `wallAimDrop` in `tree-view.js`), and the panels move to the sides (the `min-aspect-ratio: 12/5` rule at the end of `scene.css`). Ordinary screens keep the original view.
 
+**Year Review.** The bottom-right button opens the same year review book as the 2D tree (`year-review.js`, styles at the end of `scene.css`): turn through the years, see each year's leaf count, and **View Tree** shows that year's review in the heading; **Live** returns to the live tree. It reads `/api/tree/years` and `/api/tree?year=`.
+
 A local or hosted HTTP server loads the bundled models. The scene uses WebGL 2. Manual weather works offline when the scene is served locally. Live Singapore needs internet access to the weather feeds.
 
 

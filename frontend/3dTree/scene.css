@@ -328,3 +328,360 @@ body[data-weather="sunset"], body[data-weather="sunrise"] { --glass-glow: 252,18
   .dock { justify-content: flex-start; padding-left: 24px; }
   .controls { max-width: calc(50vw - 40px); }
 }
+
+
+/* =========================
+   YEAR REVIEW BOOK
+   The same corner button and flip-book as the 2D tree, copied from frontend/tree/tree.css
+   (year-review.js runs it). Keep the two in step when changing either.
+   ========================= */
+.year-review-toggle {
+    position: absolute;
+    right: 22px;
+    bottom: 22px;
+    min-height: 42px;
+    padding: 0 18px;
+    border: 1px solid rgba(20, 83, 45, 0.24);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.92);
+    color: #14532d;
+    font-size: 0.94rem;
+    font-weight: 900;
+    cursor: pointer;
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.2);
+    z-index: 121;
+}
+
+.year-review-toggle:hover,
+.year-review-toggle.active {
+    background: #14532d;
+    color: #ffffff;
+}
+
+.year-review-book {
+    position: absolute;
+    right: 22px;
+    bottom: 74px;
+    width: 300px;
+    padding: 14px;
+    border: 1px solid rgba(51, 65, 85, 0.18);
+    border-radius: 8px;
+    background:
+        linear-gradient(90deg, rgba(242, 232, 208, 0.9) 0 49%, rgba(211, 196, 164, 0.85) 49% 51%, rgba(255, 252, 242, 0.96) 51% 100%);
+    box-shadow: 0 20px 44px rgba(15, 23, 42, 0.26);
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(12px) scale(0.96);
+    transform-origin: bottom right;
+    transition: opacity 180ms ease, transform 220ms ease;
+    z-index: 120;
+    perspective: 900px;
+}
+
+.year-review-book.open {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0) scale(1);
+}
+
+.year-review-book::before {
+    content: "";
+    position: absolute;
+    top: 48px;
+    bottom: 14px;
+    left: 50%;
+    width: 1px;
+    background: rgba(120, 113, 108, 0.34);
+    box-shadow: 0 0 16px rgba(120, 113, 108, 0.35);
+    pointer-events: none;
+}
+
+.book-topline {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.book-label {
+    color: #334155;
+    font-size: 0.82rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.book-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.book-live-button,
+.book-view-button,
+.book-nav,
+.book-close-button {
+    border: 1px solid rgba(51, 65, 85, 0.2);
+    border-radius: 8px;
+    background: #ffffff;
+    color: #1f2937;
+    font-weight: 800;
+    cursor: pointer;
+    box-shadow: 0 3px 8px rgba(15, 23, 42, 0.08);
+}
+
+.book-live-button {
+    min-width: 48px;
+    height: 30px;
+    font-size: 0.8rem;
+}
+
+.book-close-button {
+    border: 1px solid rgba(51, 65, 85, 0.2);
+    border-radius: 8px;
+    background: #ffffff;
+    color: #1f2937;
+    font-weight: 800;
+    cursor: pointer;
+    box-shadow: 0 3px 8px rgba(15, 23, 42, 0.08);
+}
+
+.book-live-button.active {
+    background: #14532d;
+    color: #ffffff;
+}
+
+.book-page {
+    position: relative;
+    display: grid;
+    grid-template-columns: 32px 1fr 32px;
+    align-items: center;
+    gap: 8px;
+    min-height: 150px;
+    transform-style: preserve-3d;
+}
+
+.book-turn-sheet {
+    position: absolute;
+    top: 2px;
+    bottom: 2px;
+    left: 50%;
+    width: calc(50% - 6px);
+    border-radius: 7px;
+    background:
+        linear-gradient(90deg, rgba(255, 255, 255, 0.92), rgba(236, 228, 207, 0.96)),
+        radial-gradient(circle at 18% 50%, rgba(20, 83, 45, 0.08), transparent 42%);
+    box-shadow: -8px 8px 18px rgba(15, 23, 42, 0.18);
+    color: #14532d;
+    display: grid;
+    place-items: center;
+    font-size: 1.55rem;
+    font-weight: 900;
+    opacity: 0;
+    pointer-events: none;
+    transform-origin: left center;
+    transform: rotateY(0deg);
+    z-index: 1;
+    backface-visibility: hidden;
+    transform-style: preserve-3d;
+}
+
+.book-turn-sheet::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(90deg, rgba(15, 23, 42, 0.16), rgba(255, 255, 255, 0.06) 42%, rgba(15, 23, 42, 0.12));
+    opacity: 0;
+}
+
+.year-review-book.flip-forward .book-turn-sheet {
+    left: 50%;
+    transform-origin: left center;
+    animation: flipForward 720ms cubic-bezier(0.2, 0.74, 0.18, 1) both;
+}
+
+.year-review-book.flip-forward .book-turn-sheet::after {
+    animation: pageShadowSweep 720ms ease both;
+}
+
+.year-review-book.flip-back .book-turn-sheet {
+    left: 6px;
+    transform-origin: right center;
+    animation: flipBack 720ms cubic-bezier(0.2, 0.74, 0.18, 1) both;
+}
+
+.year-review-book.flip-back .book-turn-sheet::after {
+    animation: pageShadowSweep 720ms ease both;
+}
+
+.year-review-book.flip-forward .book-content,
+.year-review-book.flip-back .book-content {
+    animation: pageContentSettle 720ms ease both;
+}
+
+.book-nav {
+    position: relative;
+    width: 32px;
+    height: 76px;
+    font-size: 1.6rem;
+    line-height: 1;
+    z-index: 2;
+}
+
+.book-content {
+    position: relative;
+    min-width: 0;
+    text-align: center;
+    z-index: 2;
+}
+
+.book-year {
+    color: #14532d;
+    font-size: 1.65rem;
+    font-weight: 900;
+    line-height: 1;
+}
+
+.book-count {
+    margin-top: 3px;
+    color: #475569;
+    font-size: 0.84rem;
+    font-weight: 700;
+}
+
+.review-tree-preview {
+    position: relative;
+    width: 120px;
+    height: 86px;
+    margin: 8px auto;
+    background-image: url('/assets/Tree/stage4.png');
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: contain;
+}
+
+.review-leaf-dot {
+    position: absolute;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: #22c55e;
+    box-shadow: 0 0 0 1px rgba(20, 83, 45, 0.28);
+}
+
+.book-view-button {
+    width: 100%;
+    min-height: 32px;
+    padding: 6px 10px;
+    background: #f8fafc;
+    font-size: 0.84rem;
+}
+
+.book-live-button:hover,
+.book-view-button:hover,
+.book-nav:hover,
+.book-close-button:hover {
+    border-color: rgba(20, 83, 45, 0.4);
+    background: #ecfdf5;
+}
+
+.book-live-button.active:hover {
+    background: #166534;
+}
+
+@keyframes flipForward {
+    0% {
+        opacity: 1;
+        transform: rotateY(0deg);
+        box-shadow: -8px 8px 18px rgba(15, 23, 42, 0.18);
+    }
+    48% {
+        opacity: 1;
+        transform: rotateY(-92deg);
+        box-shadow: -18px 12px 26px rgba(15, 23, 42, 0.22);
+    }
+    100% {
+        opacity: 0;
+        transform: rotateY(-178deg);
+        box-shadow: -4px 6px 12px rgba(15, 23, 42, 0.08);
+    }
+}
+
+@keyframes flipBack {
+    0% {
+        opacity: 1;
+        transform: rotateY(0deg);
+        box-shadow: 8px 8px 18px rgba(15, 23, 42, 0.18);
+    }
+    48% {
+        opacity: 1;
+        transform: rotateY(92deg);
+        box-shadow: 18px 12px 26px rgba(15, 23, 42, 0.22);
+    }
+    100% {
+        opacity: 0;
+        transform: rotateY(178deg);
+        box-shadow: 4px 6px 12px rgba(15, 23, 42, 0.08);
+    }
+}
+
+@keyframes pageShadowSweep {
+    0% {
+        opacity: 0.1;
+    }
+    45% {
+        opacity: 0.44;
+    }
+    100% {
+        opacity: 0;
+    }
+}
+
+@keyframes pageContentSettle {
+    0% {
+        opacity: 1;
+        transform: translateY(0);
+    }
+    35% {
+        opacity: 0.42;
+        transform: translateY(2px);
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* The scene's own panels and the "h" clean view hide it too. */
+.clean .year-review-toggle, .clean .year-review-book { display: none; }
+
+/* Small screens, as on the 2D tree. */
+@media (max-width: 760px) {
+    .year-review-toggle {
+        right: 12px;
+        bottom: 12px;
+    }
+
+    .year-review-book {
+        right: 12px;
+        bottom: 66px;
+        width: min(92vw, 300px);
+    }
+}
+
+/* Where the scene's centred controls bar would reach the corner, the button sits just above it. */
+@media (max-width: 860px) {
+    .year-review-toggle { bottom: 84px; }
+    .year-review-book { bottom: 136px; }
+}
+@media (max-width: 550px) {
+    .year-review-toggle { bottom: 132px; }
+    .year-review-book { bottom: 184px; }
+}
+/* Phones: the scene puts its weather panel in the bottom-right corner, so Year Review takes the left. */
+@media (max-width: 500px) {
+    .year-review-toggle { right: auto; left: 12px; bottom: 122px; }
+    .year-review-book { right: auto; left: 12px; bottom: 174px; transform-origin: bottom left; }
+}

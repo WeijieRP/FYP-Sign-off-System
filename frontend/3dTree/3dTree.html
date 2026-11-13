@@ -11,6 +11,7 @@
   <title>ESG Tree | ESG Centre</title>
   <link rel="stylesheet" href="./scene.css">
   <script type="module" src="./scene.js"></script>
+  <script type="module" src="./year-review.js"></script>
 </head>
 <body data-weather="sunny">
   <main class="reserve" aria-label="Interactive ESG Tree landscape">
@@ -143,6 +144,35 @@
       </nav>
       <span class="access" id="message" role="status" aria-live="polite"></span>
     </footer>
+
+    <!-- Year Review: the same corner button and flip-book as the 2D tree (year-review.js). -->
+    <button class="year-review-toggle" id="yearReviewToggle" type="button" aria-expanded="false" aria-controls="yearReviewBook">
+      Year Review
+    </button>
+
+    <aside class="year-review-book" id="yearReviewBook" aria-label="Year review book" aria-hidden="true">
+      <div class="book-topline">
+        <span class="book-label">Year Review</span>
+        <div class="book-actions">
+          <button class="book-live-button" id="bookLiveButton" type="button">Live</button>
+          <button class="book-close-button" id="bookCloseButton" type="button" aria-label="Close year review">×</button>
+        </div>
+      </div>
+      <div class="book-page">
+        <button class="book-nav" id="bookPrevButton" type="button" aria-label="Previous year">‹</button>
+        <div class="book-turn-sheet" id="bookTurnSheet" aria-hidden="true">
+          <span id="bookTurnYear">----</span>
+        </div>
+        <div class="book-content">
+          <div class="book-year" id="bookYear">----</div>
+          <div class="book-count" id="bookCount">0 leaves</div>
+          <div class="review-tree-preview" id="reviewTreePreview"></div>
+          <button class="book-view-button" id="bookViewButton" type="button">View Tree</button>
+        </div>
+        <button class="book-nav" id="bookNextButton" type="button" aria-label="Next year">›</button>
+      </div>
+    </aside>
+
     <p class="credit"><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap contributors</a> <span>·</span> <a href="./CREDITS.md" target="_blank" rel="noopener">Scene credits</a></p>
   </main>
 </body>
