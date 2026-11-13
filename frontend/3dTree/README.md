@@ -1,0 +1,116 @@
+# Ketapang River | Stage 4
+
+A self-contained web scene for the ESG Centre tree screen. The centrepiece is the full-grown Ketapang exported from the refined Blender tree, with its bark and leaf-vein textures embedded.
+
+## Run on Windows
+
+1. Extract the entire ZIP and open the extracted folder in VS Code.
+2. In the project, start the servers (`node startAll.js`), set Admin → Digital Tree Adjustment → Display 2D/3D Tree to **3D Tree**, and open `/3dTree`. On its own, open `3dTree.html` with **Live Server** (remove its `<base href="/3dTree/">` line first). With Python installed, you can also run `py -m http.server 8000` in the extracted folder and visit `http://localhost:8000/`.
+3. The opening view centres the Ketapang, with the river, banks and forest visible across the 7 m × 2 m display. **Enable sound** starts the ambience. **Wind now** previews a gust.
+
+While the 3D scene builds, the page shows a still picture of it straight away and then cross-fades into the live view, so no loading screen appears. The still is the last view this screen showed (saved in the browser a few seconds after the scene appears and every ten minutes), or `assets/poster.jpg` on a first visit (`assets/poster-wall.jpg` on a wall-shaped screen). To remake them, capture the page opened with `?clean=1&weather=manual` at 1920 x 1080 and at 2800 x 800.
+
+On a wall-shaped screen such as the 7 m x 2 m display (3.5:1), the camera moves closer and aims a little lower so the tree fills the height as the main focus (`wallDistance` and `wallAimDrop` in `tree-view.js`), and the panels move to the sides (the `min-aspect-ratio: 12/5` rule at the end of `scene.css`). Ordinary screens keep the original view.
+
+A local or hosted HTTP server loads the bundled models. The scene uses WebGL 2. Manual weather works offline when the scene is served locally. Live Singapore needs internet access to the weather feeds.
+
+
+## Tree view
+
+Drag on the scene or use the arrow keys to orbit the tree. Scroll, pinch, or use **+** and **−** to zoom around the same centre. The opening wide framing is the zoom-out limit.
+
+**24h orbit** moves the camera at 15° per hour while the scene is visible. It pauses during camera input and resumes a few seconds afterward. It starts on unless reduced motion is enabled. Select the button to toggle it.
+
+## Weather and sky
+
+- **Live Singapore** starts automatically and displays the local time and sky period alongside the rain status. The sky moves through **Sunrise**, **Day**, **Sunset** and **Night** as Singapore time advances.
+- **All Singapore** enables rain when any gauge in the latest [NEA rainfall report](https://data.gov.sg/datasets/d_6580738cdd7db79374ed3152159fbd69/view) records rain. The readout shows the number of wet gauges. NEA publishes readings every five minutes, and the scene checks for a new report every minute.
+- **Rain area** lets you select a named Singapore area, including Jurong West, Woodlands and Yishun. The scene uses the closest reporting gauge to that area's reference point. The wider area list comes from [NEA's area metadata](https://data.gov.sg/datasets/d_3f9e064e25005b0e42969944ccaf2e7a/view). If the area list is temporarily unavailable, the three built-in areas and any named rain gauges are available.
+- Choose **Use my location** and allow location access to follow the nearest rain gauge as you move. The detected area name is approximate, and location coordinates stay in your browser. Use HTTPS or localhost for browser location access. You can select an area directly if location access is unavailable.
+- The readout marks missing or stale readings as unavailable. When recent rain data is unavailable, the sky follows the Singapore clock and the scene stays dry.
+- [Open-Meteo](https://open-meteo.com/en/docs) supplies local sunrise and sunset times, cloud cover and weather codes. The scene uses approximate local sunrise and sunset times while that feed is unavailable.
+- **Manual** gives you **Sunrise**, **Day**, **Sunset** and **Night**, with a gentle 16-second fade when you switch. **Play sunset** takes about 42 seconds from daylight through sunset to moonlit night. If you start it after dark, the scene first eases into daylight through sunrise. The **Rain** button works with any manual sky, including at night.
+- Manual rain includes lightning and delayed thunder. Live mode adds thunder when the weather feed reports thunderstorms alongside rain. Enable sound to hear the thunder. The system's reduced-motion setting suppresses bright lightning pulses.
+- Two cloud layers drift at different speeds through daylight, sunrise, sunset, night and rain.
+- At night, soft moonlight brings out the island, banks and forest floor, and the river takes on a brighter blue tone.
+
+## River level
+
+The **River level** panel shows the simulated water height relative to the island bank mark. At 100%, the water reaches that mark. The river surface rises over the lower banks and drops again as the reading changes. Fish, ducks and floating leaves follow the surface.
+
+| Level | Modeled bank height |
+| --- | --- |
+| Normal | Below 70% |
+| High | 70% to below 90% |
+| Danger | 90% and above |
+
+**Auto (rain)** responds gradually to the scene's rain intensity and drains after the rain eases. Use **Preview Normal**, **Preview High** or **Preview Danger** to show each level during a demonstration. The scale and thresholds are for the scene simulation. For real-world Singapore water-level updates and flood alerts, see [PUB's flood monitoring information](https://www.pub.gov.sg/Public/KeyInitiatives/Flood-Resilience/Flood-Forecasting-and-Monitoring).
+
+## Birds and wind
+
+Birds fly and perch while the Ketapang keeps its steady matte shading. **Wind now** or an automatic gust drops one or two textured leaves. Some fall directly into the river, and a later gust can lift settled leaves off the island. A leaf makes a small ripple and a soft splash when it touches the water. The current carries it downstream until it fades from view.
+
+Select **Enable sound**, then **Wind now** to preview a splash. Wait about nine seconds before sending another gust to see settled leaves lift off the island.
+
+## Explore the forest
+
+- The forest behind the Ketapang has a tall canopy, shorter trees, woody shrubs and ferns. Wildflowers, mushrooms, fallen logs, moss, lichen, lianas and epiphytes add detail at ground and trunk level.
+- A small creek flows down the left bank into the river, with wet-bank reeds and local spray. Look for the plantain squirrel, water monitor, frog, butterflies and ground beetles.
+- **Soil life** opens a 3D cutaway of litter, topsoil and subsoil, with roots, fungal threads and enlarged microbe symbols.
+
+## Add to an existing website
+
+Keep the extracted files together in a folder such as `public/ketapang-river/`. Embed its page wherever the tree screen goes.
+
+```html
+<iframe
+  src="/ketapang-river/index.html?embed=1"
+  title="Ketapang River, full-grown Stage 4"
+  style="display:block;width:100%;aspect-ratio:7/2;border:0"
+  allow="fullscreen; autoplay; geolocation"
+  allowfullscreen
+></iframe>
+```
+
+| URL option | Behaviour |
+| --- | --- |
+| `embed=1` | Compact view with the controls |
+| `orbit=off` | Start with automatic orbit paused |
+| `weather=live` | Start with Live Singapore weather enabled |
+| `weather=manual` | Start in manual Day mode |
+| `quality=low` | Optional performance mode: lighter model placement and adaptive lower resolution |
+| `clean=1` | Show the landscape with attribution. Press **H** to toggle the controls. |
+
+The opening camera fits the canopy and roots within the 7:2 frame, with the animated valley visible on both sides.
+
+## Image clarity and 3D assets
+
+The background has 238 taller trees at default quality, with an understory of shorter trees and shrubs. Red and copper Ketapang foliage is mixed among green trees, gold Yellow Flame and pink Trumpet Tree-inspired groves, and low riverbank shrubs. Two 3D mountain ridges wrap around the valley and appear in the river reflections. The main Ketapang has a matte mix of deeper greens, olive and muted copper, with the original leaf veins and bark textures.
+
+The default view uses multisample anti-aliasing, smoothed leaf-mask edges, trilinear mipmaps and up to 16× anisotropic texture filtering. The render buffer follows device pixels up to 2× CSS resolution, subject to a 20-million-pixel budget and the GPU's maximum buffer size. It no longer automatically reduces resolution when the default scene is busy. For example, a 7,000 × 2,000-pixel output fits that budget. The optional `quality=low` mode retains adaptive resolution for slower hardware.
+
+The scene loads all visible 3D meshes and their source materials from the bundled GLBs. Image textures, including the sky panorama and bank surfaces, are embedded in those files. Anti-aliasing smooths edges at the display's native resolution.
+
+## Reuse the models
+
+The ZIP contains 21 GLB files. The website loads 19 at a time, with two alternate models for the low-quality mode.
+
+| In `assets/models/` | Contents |
+| --- | --- |
+| `ketapang-stage-4.glb` | Textured mature tree, exposed roots, branches and individual broad leaves |
+| `river-terrain.glb` | River valley, riverbed and centre island, with loam and gravel materials |
+| `river-water.glb` | Water surface fitted to the mapped shoreline and low banks |
+| `river-hawk.glb` | Textured hawk with separate body and wing groups |
+| `barramundi.glb`, `mallard.glb` | Textured fish and swimming duck model |
+| `forest-tree.glb`, `forest-tree-distant.glb` | Two detail levels of the smaller Stage 4 Ketapang, with textured leaves and branches |
+| `river-rock.glb`, `river-grass.glb`, `river-ferns.glb` | Scanned rock and authored plants |
+| `river-mountains.glb`, `river-mountains-low.glb` | Two levels of detail for the wooded mountain ridges |
+| `forest-habitat.glb`, `forest-habitat-low.glb` | Two levels of detail for moss, wildflowers, mushrooms, logs, reeds, vines, epiphytes and the creek |
+| `forest-blossoms.glb` | Yellow Flame and Trumpet Tree flowers |
+| `forest-wildlife.glb` | Squirrel, monitor lizard, frog, beetle and three butterfly variants |
+| `forest-soil.glb` | Soil layers, roots, fungi, microbes and litter |
+| `ketapang-drift-leaves.glb` | Four textured leaves used for falling and floating animations |
+| `river-sky.glb` | Sky dome with the embedded panorama |
+| `river-weather.glb` | Rain and spray droplets and four branching lightning meshes |
+
+Import the GLBs into Blender through **File → Import → glTF 2.0**. The website places the models and applies the live weather, water shaders, camera controls and wildlife motion. Those effects play when you open the served scene. See `CREDITS.md` for source licences.

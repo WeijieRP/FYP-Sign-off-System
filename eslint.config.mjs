@@ -40,7 +40,7 @@ const rules = {
 const cdnGlobals = { Chart: 'readonly', faceapi: 'readonly', QRCode: 'readonly', THREE: 'readonly' };
 
 export default [
-  { ignores: ['node_modules/**', 'legacy/**', 'uploads/**', 'assets/**', 'logs/**', 'docs/**'] },
+  { ignores: ['node_modules/**', 'legacy/**', 'uploads/**', 'assets/**', 'logs/**', 'docs/**', 'frontend/3dTree/vendor/**'] },
   {
     files: ['backend/**/*.js', 'database/**/*.js', 'startAll.js', 'tests/**/*.js', 'scripts/**/*.js', '.github/scripts/**/*.js'],
     languageOptions: { ecmaVersion: 2022, sourceType: 'commonjs', globals: globals.node },
@@ -56,6 +56,11 @@ export default [
     files: ['frontend/admin/js/*.js'],
     languageOptions: { globals: sharedPageGlobals('frontend/admin/js') },
     rules: { 'no-redeclare': ['error', { builtinGlobals: false }], 'no-unused-vars': ['warn', { vars: 'local', args: 'none', caughtErrors: 'none' }] },
+  },
+  {
+    // The 3D ESG Tree scene is built from ES modules (import/export), with three.js bundled in vendor/.
+    files: ['frontend/3dTree/**/*.js'],
+    languageOptions: { sourceType: 'module', ecmaVersion: 2024 },
   },
   {
     files: ['frontend/feedback/js/*.js'],

@@ -10,7 +10,7 @@
 
 **What it does**
 
-The wall display. /api/tree returns this year's visitors as leaves; tree.js places them around the trunk, animates falling leaves and VIP gold leaves, and polls for new feedback. The admin tab controls growth stage, backgrounds, leaf images and the title box. /3dtree is only served when the admin switches the display mode to 3D.
+The wall display. /api/tree returns this year's visitors as leaves; tree.js places them around the trunk, animates falling leaves and VIP gold leaves, and polls for new feedback. The admin tab controls growth stage, backgrounds, leaf images and the title box. /3dtree is only served when the admin switches the display mode to 3D. The 3D page is the self-contained Ketapang River scene (frontend/3dTree/3dTree.html with scene.js and its modules, three.js bundled in vendor/, models and audio in assets/); see frontend/3dTree/README.md.
 
 **Routes** (from tests/contracts/routes.snapshot.txt)
 
@@ -47,9 +47,6 @@ The wall display. /api/tree returns this year's visitors as leaves; tree.js plac
 
 **Known issues (from the October 2026 review, line numbers refer to the layout before the restructure where noted)**
 
-- 3D page never draws a leaf: 3dTree.js has the tree-image line commented out (3dTree.js 112 / 865).
-- 3D page ignores title box and VIP settings; VIP folder name vip_leaf should be vip-leaf (3dTree.js 315, 1133).
-- model-viewer only from a Google CDN, no fallback (3dTree.html 7).
 - Live tree polls every 5 s regardless of leafRefreshInterval, 4 requests and a full rebuild each time (tree.js 2042).
 - Auto growth stage is computed once when the admin saves; nothing re-evaluates it as leaves arrive (the thresholds are stored and reloaded into the form since 31 Oct).
 - Empty number boxes save 0 and the wall uses hidden defaults (admin/js/parameters.js + tree.js 411).

@@ -1,0 +1,340 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  background: #172d26;
+  color: #f7f8ed;
+}
+* { box-sizing: border-box; }
+html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+button { font: inherit; }
+.reserve, .view { position: absolute; inset: 0; }
+.view {
+  background: #537a72;
+}
+.view::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(158deg, #0e20188c, transparent 36%),
+              linear-gradient(0deg, #10251d87, transparent 22%);
+}
+canvas { width: 100%; height: 100%; display: block; }
+/* Still picture over the canvas until the first live frame, then a slow cross-fade into the 3D scene. */
+.poster {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; pointer-events: none;
+}
+.poster:not([src]) { visibility: hidden; }
+.reserve[data-ready="true"] .poster {
+  opacity: 0; visibility: hidden;
+  transition: opacity 1.4s ease, visibility 0s linear 1.4s;
+}
+#landscape { touch-action: none; }
+#landscape:focus-visible { outline: 2px solid #ecd797; outline-offset: -3px; }
+.masthead {
+  position: absolute; top: clamp(19px, 4vw, 56px); left: clamp(16px, 4vw, 62px);
+  text-shadow: 0 2px 22px #10281eb0;
+  pointer-events: none;
+}
+.eyebrow {
+  display: flex; align-items: center; gap: 10px; margin: 0 0 10px;
+  font-weight: 700; font-size: .66rem; letter-spacing: .22em;
+}
+.mark { font-size: 1rem; color: #f1dfa0; }
+.divider { width: 15px; height: 1px; background: #e8e9ce9c; }
+h1 { font: 500 clamp(2.1rem, 5.2vw, 5.25rem)/.98 Georgia, serif; letter-spacing: -.055em; margin: 0; }
+.species { font-size: clamp(.69rem,1.05vw,.9rem); margin: 13px 0 0; color: #f1f0db; }
+.species span { margin: 0 .42em; opacity: .62; }
+.wind-readout {
+  border: 1px solid #d5e6cd42; border-radius: 100px; padding: 8px 12px;
+  background: #142e35a8; color: #f2f4e4; box-shadow: 0 6px 30px #162d2117;
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+  display: flex; align-items: center; gap: 7px;
+  font-weight: 600; font-size: .72rem; letter-spacing: .01em; font-variant-numeric: tabular-nums;
+}
+.wind-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #b0d9a1; }
+.wind-dot.active { background: #f2cf82; box-shadow: 0 0 8px 2px #eed37c77; }
+.dock {
+  position: absolute; inset: auto 0 max(20px, env(safe-area-inset-bottom)) 0;
+  display: flex; justify-content: center;
+  pointer-events: none;
+}
+.controls {
+  pointer-events: auto; display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; align-items: center; padding: 5px; max-width: calc(100vw - 16px);
+  border-radius: 19px; border: 1px solid #c8e6c744; background: #152c23ed;
+  box-shadow: 0 8px 26px #0b1c1980;
+}
+.controls button {
+  display: flex; align-items: center; gap: 7px; cursor: pointer;
+  border: 1px solid transparent; padding: 8px 10px;
+  min-height: 39px; border-radius: 13px; background: transparent; color: #eaf3dd;
+  font-size: .74rem; font-weight: 620; transition: background .16s, color .16s;
+}
+.controls button:hover, .controls button[aria-pressed="true"] { background: #bdde9d25; color: #f4f8dc; }
+.controls button:focus-visible { outline: 2px solid #ecd797; outline-offset: -1px; }
+.controls button:disabled { cursor: default; opacity: .46; }
+.controls svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.55; stroke-linecap: round; stroke-linejoin: round; }
+.controls .icon-button { padding: 8px; }
+#sound:not(:disabled)[aria-pressed="false"] { background: #d8c46b24; color: #f7e6a9; }
+#sound:not(:disabled)[aria-pressed="false"]:hover { background: #d8c46b42; }
+.volume-control { display: flex; align-items: center; padding: 4px 6px 4px 0; }
+.volume-control input { width: 62px; accent-color: #c4d68f; cursor: pointer; }
+.volume-control input:disabled { opacity: .35; cursor: default; }
+.separator { width: 1px; height: 19px; background: #d2e4c830; margin: 0 1px; }
+.loading {
+  position: absolute; top: 50%; left: 50%; translate: -50% -50%;
+  width: min(320px, 89vw); display: flex; align-items: center; gap: 15px;
+  border-radius: 18px; padding: 18px; background: #132f25f0; border: 1px solid #c4ddb943;
+  box-shadow: 0 14px 46px #11201c66;
+}
+.loading[hidden] { display: none; }
+.loading strong { display: block; margin-bottom: 5px; }
+.loading div span { display: block; color: #dce9ce; font-size: .82rem; line-height: 1.4; }
+.loader { flex: none; width: 23px; height: 23px; border: 2px solid #d7e4bd37; border-top-color: #d4e6ae; border-radius: 50%; animation: spin 1s linear infinite; }
+.loading.error .loader { display: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.access { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.embed .masthead { display: none; }
+.clean .masthead, .clean .river-monitor, .clean .dock { display: none; }
+.clean .view::after { display: none; }
+@media(max-width: 550px) {
+  .masthead { top: 22px; }
+  .eyebrow { font-size: .53rem; gap: 6px; }
+  .wind-readout { padding: 7px 9px; font-size: .62rem; }
+  .species { max-width: 240px; line-height: 1.42; }
+  .controls button { font-size: .67rem; padding-inline: 7px; }
+  .controls { gap: 2px; }
+  .controls .icon-button { padding-inline: 6px; }
+  .volume-control { padding-inline: 0; }
+  .volume-control input { width: 43px; margin: 0 2px; }
+}
+@media(max-width: 372px) {
+  .controls button { gap: 4px; padding-inline: 5px; font-size: .61rem; }
+  .controls svg { width: 15px; height: 15px; }
+}
+@media(prefers-reduced-motion: reduce) {
+  .controls button { transition: none; }
+  .loader { animation-duration: 4s; }
+}
+
+.credit {
+  position: absolute; right: 12px; bottom: 6px; z-index: 2;
+  pointer-events: auto; margin: 0; color: #dce6cd; font-size: .60rem;
+  text-shadow: 0 1px 4px #152c23; line-height: 1.1;
+}
+.credit a { color: inherit; text-decoration: underline; text-underline-offset: .13em; }
+.credit span { opacity: .6; margin: 0 .38em; }
+
+:root { --glass-glow: 181, 226, 170; }
+body[data-weather="night"] { --glass-glow: 143, 192, 245; }
+body[data-weather="rain"] { --glass-glow: 144, 216, 227; }
+
+.glass-card {
+  border: 1px solid rgba(240,255,242,.28);
+  background: linear-gradient(135deg,rgba(232,255,239,.16),rgba(20,46,40,.54) 68%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  backdrop-filter: blur(18px) saturate(150%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.24),0 10px 35px rgba(5,24,20,.22),
+    0 0 24px rgba(var(--glass-glow),.10);
+}
+.masthead {
+  top: 14px; left: 50%; translate: -50% 0; width: min(374px,calc(100vw - 32px));
+  padding: 12px 22px 11px; border-radius: 20px; overflow: hidden; pointer-events: auto;
+  text-align: center; transform-origin: top center;
+  transition: transform .25s ease,box-shadow .25s ease,border-color .25s ease,background .25s ease;
+}
+.masthead::before {
+  content: ""; position: absolute; inset: -80% -120%; pointer-events: none;
+  background: linear-gradient(108deg,transparent 42%,rgba(245,255,247,.19) 49%,transparent 56%);
+  transform: translateX(-27%); transition: transform .7s ease;
+}
+.masthead:hover,.masthead:focus-visible {
+  transform: translateY(-3px);
+  border-color: rgba(227,255,232,.72);
+  background: linear-gradient(135deg,rgba(235,255,242,.23),rgba(20,46,40,.61) 68%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.38),0 14px 44px rgba(5,24,20,.3),
+    0 0 34px rgba(var(--glass-glow),.28);
+}
+.masthead:hover::before,.masthead:focus-visible::before { transform: translateX(27%); }
+.masthead:focus-visible { outline: 2px solid #d3eebc; outline-offset: 4px; }
+.masthead h1 { font-size: clamp(1.9rem,3vw,2.35rem); line-height: 1.04; text-shadow: 0 0 20px #e1f7db24,0 2px 18px #10281e85; }
+.masthead .eyebrow { justify-content: center; font-size: .53rem; letter-spacing: .17em; gap: 8px; margin-bottom: 5px; }
+.masthead .species { font-size: .68rem; margin: 5px 0 0; max-width: none; line-height: 1.45; }
+.weather-panel {
+  position: absolute; top: 22px; right: 24px; width: 244px; padding: 13px;
+  border-radius: 19px; color: #f0f7e9;
+}
+.panel-label { margin: 0 0 9px; font-size: .57rem; font-weight: 750; text-transform: uppercase; letter-spacing: .2em; opacity: .83; }
+.weather-options { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 4px; }
+.weather-panel button {
+  border: 1px solid transparent; border-radius: 11px; color: #edf5e6; background: #0f282b24;
+  font-family: inherit; font-weight: 650; font-size: .68rem; line-height: 1.2; cursor: pointer;
+  transition: background .2s ease,transform .2s ease,border-color .2s ease,box-shadow .2s ease;
+}
+.weather-options button { min-height: 43px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 6px 2px; }
+.weather-panel svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.55; stroke-linecap: round; stroke-linejoin: round; }
+.weather-panel button:hover:not(:disabled) { transform: translateY(-2px); border-color: #e0f5d788; background: #cceabc25; box-shadow: 0 3px 12px #bbddbb18; }
+.weather-panel button:focus-visible { outline: 2px solid #d4ebbb; outline-offset: 2px; }
+.weather-options button[aria-pressed="true"] { background: #d9f2ba2e; border-color: #e0f2c46b; color: #f7ffe8; }
+.weather-panel button:disabled { opacity: .45; cursor: default; }
+.controls { background: linear-gradient(135deg,#253d37c9,#142a2ad9); -webkit-backdrop-filter: blur(14px) saturate(135%); backdrop-filter: blur(14px) saturate(135%); }
+.controls button { transition: background .18s ease,color .18s ease,transform .18s ease; }
+.controls button:hover:not(:disabled) { transform: translateY(-1px); }
+.clean .weather-panel { display: none; }
+
+@media(max-width:900px) {
+  .weather-panel { top: 119px; }
+}
+@media(max-width:700px) {
+  .masthead { top: 12px; left: 50%; width: 310px; padding: 12px 15px; border-radius: 17px; }
+  .masthead h1 { font-size: 1.9rem; }
+  .masthead .eyebrow { font-size: .48rem; gap: 5px; }
+  .masthead .species { font-size: .63rem; margin-top: 8px; }
+  .weather-panel { top: 119px; right: 14px; width: 196px; padding: 10px; border-radius: 16px; }
+  .weather-options button { font-size: .61rem; }
+}
+@media(min-width:701px) and (max-height:500px) {
+  .masthead { top: 10px; width: clamp(230px,27vw,350px); padding: 8px 18px; border-radius: 16px; }
+  .masthead h1 { font-size: clamp(1.45rem,2.1vw,1.8rem); }
+  .masthead .eyebrow { font-size: .45rem; margin-bottom: 3px; }
+  .masthead .mark { font-size: .75rem; }
+  .masthead .species { font-size: .6rem; line-height: 1.25; margin-top: 3px; }
+  .weather-panel { top: 14px; right: 14px; width: clamp(176px,18vw,244px); }
+}
+@media(min-width:701px) and (max-width:900px) and (max-height:280px) {
+  .weather-panel { padding: 8px; }
+  .weather-panel .panel-label { font-size: .5rem; line-height: 1; margin-bottom: 6px; }
+  .weather-options button { font-size: .56rem; min-height: 32px; gap: 3px; padding: 4px 1px; }
+  .wind-readout { display: none; }
+}
+@media(max-width:500px) {
+  .masthead { top: 12px; left: 50%; width: 310px; max-width: calc(100vw - 24px); }
+  .weather-panel { top: auto; right: 12px; bottom: 122px; width: 208px; }
+}
+@media(prefers-reduced-motion:reduce) {
+  .masthead,.masthead::before,.weather-panel button,.controls button { transition: none; }
+  .masthead:hover,.masthead:focus-visible,.weather-panel button:hover:not(:disabled),.controls button:hover:not(:disabled) { transform: none; }
+}
+
+/* Weather source and solar controls */
+body[data-weather="sunset"], body[data-weather="sunrise"] { --glass-glow: 252,180,132; }
+.weather-panel { padding: 10px; max-height: max(110px, calc(100dvh - 104px)); overflow-y: auto; }
+.weather-source, .weather-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.weather-source { grid-template-columns: 1.35fr 1fr; margin-bottom: 5px; }
+.weather-actions { margin-top: 5px; }
+.weather-source button, .weather-actions button { min-height: 31px; padding: 3px; }
+.weather-panel .weather-options button { min-height: 33px; }
+.weather-source button[aria-pressed="true"], .weather-actions button[aria-pressed="true"] { background: #d9f2ba2e; border-color: #e0f2c46b; }
+.weather-location {
+  display: grid; grid-template-columns: auto minmax(0,1fr); align-items: center; gap: 5px 7px;
+  font-size: .68rem; font-weight: 620;
+}
+.weather-location[hidden] { display: none; }
+.weather-location select {
+  min-width: 0; min-height: 29px; padding: 3px 5px; border: 1px solid #d7eee052;
+  border-radius: 8px; background: #1a3531; color: #edf5e6; font: inherit;
+}
+.weather-location select:focus-visible { outline: 2px solid #d4ebbb; outline-offset: 2px; }
+#weather-location-note { grid-column: 1 / -1; margin: 0; font-weight: 450; line-height: 1.35; }
+#weather-readout { font-size: .63rem; line-height: 1.35; margin: 5px 1px; }
+@media(max-height:280px) {
+  .weather-panel .weather-options button, .weather-source button, .weather-actions button { min-height: 24px; }
+  .weather-location select { min-height: 24px; }
+}
+
+.river-monitor {
+  position: absolute; top: 22px; left: 24px; width: clamp(174px,18vw,231px);
+  display: grid; justify-items: start; gap: 7px;
+}
+.river-level-panel {
+  --level-colour: #b7e3bd;
+  width: 100%; padding: 10px 12px; border-radius: 16px;
+  background: linear-gradient(135deg,#27433be3,#122824ed); color: #ecf5e9;
+}
+.river-level-panel[data-stage="high"] { --level-colour: #ffe29b; }
+.river-level-panel[data-stage="danger"] { --level-colour: #ffc2b6; }
+.river-level-heading, .river-level-reading {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 4px 9px; flex-wrap: wrap;
+}
+.river-level-heading h2 { margin: 0; font-size: .75rem; font-weight: 720; }
+.river-level-heading > span { color: #d1e4d9; font-size: .62rem; }
+.river-level-reading { margin: 8px 0 7px; font-size: .64rem; font-variant-numeric: tabular-nums; }
+#river-level-status { color: var(--level-colour); font-size: .97rem; line-height: 1; }
+#river-level-value { font-weight: 740; }
+#river-level-meter {
+  --high-mark: 59.83%; --danger-mark: 76.92%; --bank-mark: 85.47%; --level-mark: 29.91%;
+  position: relative; height: 6px; border-radius: 6px;
+  background: linear-gradient(90deg,#83b991 0 var(--high-mark),
+    #e7bc69 var(--high-mark) var(--danger-mark),#de8d80 var(--danger-mark) 100%);
+}
+#river-level-meter::before {
+  content: ""; position: absolute; left: var(--bank-mark); top: -2px; bottom: -2px;
+  width: 1px; background: #263b31;
+}
+.river-level-marker {
+  position: absolute; left: var(--level-mark); top: 50%; translate: -50% -50%;
+  width: 9px; height: 11px; border-radius: 4px; background: #f5fff5;
+  border: 1px solid #244538; box-shadow: 0 1px 3px #0c201a9a;
+}
+#river-level-detail { margin: 7px 0 6px; color: #dbeadf; font-size: .65rem; }
+#river-level-mode {
+  width: 100%; min-height: 27px; padding: 2px 5px; border-radius: 7px;
+  border: 1px solid #c9e8d455; background: #19362d; color: inherit; font: 620 .66rem/1.2 Inter,system-ui,sans-serif;
+}
+#river-level-mode:focus-visible { outline: 2px solid #d4ebbb; outline-offset: 2px; }
+#river-level-mode:disabled { opacity: .57; }
+@media(max-width:900px) {
+  .river-monitor { top: 119px; }
+}
+@media(max-width:700px) {
+  .river-monitor { left: 14px; width: min(196px,calc((100vw - 38px)/2)); }
+  .river-level-panel { padding: 8px 9px; }
+}
+@media(max-width:500px) {
+  .river-monitor { left: 12px; width: min(182px,calc(100vw - 24px)); }
+  .embed .river-monitor { top: 14px; }
+}
+@media(min-width:701px) and (max-height:500px) {
+  .river-monitor { top: 14px; left: 14px; }
+}
+@media(max-height:280px) {
+  .river-monitor .wind-readout { display: none; }
+  .river-level-panel { padding: 7px 8px; }
+  #river-level-mode { min-height: 23px; }
+}
+
+.soil-panel {
+  position: absolute; left: max(14px, env(safe-area-inset-left)); bottom: 80px;
+  width: min(330px, calc(100vw - 28px)); padding: 11px 13px; border-radius: 15px;
+  color: #edf3e7; background: #152c26e8; z-index: 4;
+}
+.soil-panel[hidden], .clean .soil-panel, #soil-view[hidden] { display: none; }
+.soil-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.soil-heading h2 { margin: 0; font: 650 .89rem/1.2 Inter, system-ui, sans-serif; }
+.soil-heading button {
+  width: 27px; height: 27px; border: 1px solid #dcf2d63d; border-radius: 7px;
+  background: #d8e8d314; color: inherit; cursor: pointer; font: inherit; font-size: 1rem;
+}
+.soil-heading button:hover { background: #d8e8d339; }
+.soil-heading button:focus-visible { outline: 2px solid #e7e1ad; outline-offset: 2px; }
+#soil-view { width: 100%; height: clamp(105px, 32vh, 162px); cursor: default; }
+.soil-key { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: .62rem; }
+.soil-key span { display: inline-flex; align-items: center; gap: 4px; }
+.soil-key i { width: .6em; height: .6em; display: inline-block; border-radius: 50%; }
+.root-key { background: #bf8d61; }
+.fungus-key { background: #e5c988; }
+.microbe-key { background: #8bc6a4; }
+.soil-panel p { margin: 7px 0 0; font-size: .65rem; color: #cad8c7; line-height: 1.35; }
+@media(max-width:550px) { .soil-panel { bottom: 123px; } }
+@media(max-height:300px) {
+  .soil-panel { bottom: 65px; padding: 8px 10px; }
+  #soil-view { height: 83px; }
+}
+
+/* Wall-shaped screens, such as the 7 m x 2 m display (3.5:1): the tree stands in the middle as the main
+   focus, so the panels move to the sides. Title and river level on the left, weather on the right,
+   controls at the bottom left, above which the soil view opens. */
+@media (min-aspect-ratio: 12/5) and (min-width: 901px) {
+  .masthead { top: 22px; left: 24px; translate: none; transform-origin: top left; }
+  .river-monitor { top: 150px; }
+  .dock { justify-content: flex-start; padding-left: 24px; }
+  .controls { max-width: calc(50vw - 40px); }
+}

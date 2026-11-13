@@ -120,6 +120,9 @@ check('routes: every /api path the frontend calls is registered', () => {
     const consts = {};
     for (const m of text.matchAll(/(?:const|let|var)\s+([A-Z_][A-Z0-9_]*)\s*=\s*['"](\/api\/[^'"]*)['"]/g)) consts[m[1]] = m[2];
     for (const m of text.matchAll(/(\/api\/(?:[A-Za-z0-9_\-.\/:]|\$\{[^}]*\})*)/g)) {
+      // Part of a full URL to another site (e.g. https://api-open.data.gov.sg/v2/real-time/api/rainfall), not our /api.
+      const literalStart = Math.max(text.lastIndexOf("'", m.index), text.lastIndexOf('"', m.index), text.lastIndexOf('`', m.index));
+      if (text.slice(literalStart + 1, m.index).includes('://')) continue;
       let p = m[1].replace(/\$\{[^}]*\}/g, '__X__').replace(/[.:]+$/, '').replace(/\/+$/, '') || m[1];
       const key = p;
       if (!seen.has(key)) seen.set(key, []);

@@ -1,74 +1,166 @@
-<!DOCTYPE html>
-<!-- Owner: Role 2, Wei Jie. Previous team: none marked. -->
+<!doctype html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ESG Digital Tree 3D</title>
-    <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/4.0.0/model-viewer.min.js"></script>
-
-    <link rel="stylesheet" href="3dTree.css?v=badge-colors-20260716-1">
-    <script src="3dTree.js?v=badge-colors-20260716-1" defer></script>
+  <meta charset="utf-8">
+  <!-- The server shows this page at /3dTree (no trailing slash), so relative links such as ./scene.js and
+       ./assets/... must resolve inside the 3dTree folder. -->
+  <base href="/3dTree/">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#172d26">
+  <link rel="icon" href="data:,">
+  <title>ESG Tree | ESG Centre</title>
+  <link rel="stylesheet" href="./scene.css">
+  <script type="module" src="./scene.js"></script>
 </head>
-<body>
-    <div id="treeContainer">
-        <div class="tree-title">
-            <h1 id="treeTitle">🌳 ESG Digital Tree</h1>
-            <p id="treeSubtitle">Growing with every visitor's contribution this year</p>
-        </div>
-
-        <button class="year-review-toggle" id="yearReviewToggle" type="button" aria-expanded="false" aria-controls="yearReviewBook">
-            Year Review
-        </button>
-
-        <aside class="year-review-book" id="yearReviewBook" aria-label="Year review book" aria-hidden="true">
-            <div class="book-topline">
-                <span class="book-label">Year Review</span>
-                <div class="book-actions">
-                    <button class="book-live-button" id="bookLiveButton" type="button">Live</button>
-                    <button class="book-close-button" id="bookCloseButton" type="button" aria-label="Close year review">×</button>
-                </div>
-            </div>
-            <div class="book-page">
-                <button class="book-nav" id="bookPrevButton" type="button" aria-label="Previous year">‹</button>
-                <div class="book-turn-sheet" id="bookTurnSheet" aria-hidden="true">
-                    <span id="bookTurnYear">----</span>
-                </div>
-                <div class="book-content">
-                    <div class="book-year" id="bookYear">----</div>
-                    <div class="book-count" id="bookCount">0 leaves</div>
-                    <div class="review-tree-preview" id="reviewTreePreview"></div>
-                    <button class="book-view-button" id="bookViewButton" type="button">View Tree</button>
-                </div>
-                <button class="book-nav" id="bookNextButton" type="button" aria-label="Next year">›</button>
-            </div>
-        </aside>
-        
-        <!-- Hidden 2D anchors keep the shared tree script working on the 3D page. -->
-        <!--<img id="treeImage" src="/assets/Tree/stage4.png" alt="" aria-hidden="true">
-        <img id="treeImageLeaves" src="/assets/Tree/stage4leaves.png" alt="" aria-hidden="true">-->
-
-        <model-viewer id="treeModel" src="/assets/Tree/Tree_WO_base.glb" alt="ESG 3D Tree" camera-controls shadow-intensity="1" exposure="1" interaction-prompt="none" camera-orbit="270deg 90deg 200%">
-        </model-viewer>
-        
-        <div id="ovalOverlay"></div>
-        <div id="leavesContainer"></div>
-        
-        <div class="loading" id="loadingMessage">
-            Loading tree data...
-        </div>
-
-        <aside class="leaf-detail-card" id="leafDetailCard" aria-live="polite" aria-hidden="true">
-            <button class="leaf-detail-close" id="leafDetailClose" type="button" aria-label="Close leaf details">×</button>
-            <p class="leaf-detail-kicker" id="leafDetailPrivacy">Leaf details</p>
-            <h2 id="leafDetailName">Anonymous visitor</h2>
-            <div class="leaf-detail-meta">
-                <span id="leafDetailBadge">Feedback Contributor</span>
-                <span id="leafDetailDate">Today</span>
-            </div>
-            <p class="leaf-detail-quote" id="leafDetailSnippet">Select a leaf to view its pledge snippet.</p>
-        </aside>
+<body data-weather="sunny">
+  <main class="reserve" aria-label="Interactive ESG Tree landscape">
+    <div id="view" class="view">
+      <canvas id="landscape" tabindex="0" aria-label="The ESG Tree and animated river"
+        aria-describedby="tree-view-help"></canvas>
+      <span id="tree-view-help" class="access">Drag or use the arrow keys to orbit the tree. Scroll, pinch, or use plus and minus to zoom.</span>
+      <!-- A still of the scene, shown at once while the 3D scene builds, then faded into the live view.
+           It is the last view this screen showed (saved by scene.js), or the bundled picture on a first visit. -->
+      <img id="poster" class="poster" alt="" aria-hidden="true" decoding="sync">
+      <script>
+        (function () {
+          var poster = document.getElementById('poster');
+          // The wall-shaped picture on a wide display such as the 7 m x 2 m wall (3.5:1).
+          var fallback = innerWidth / Math.max(1, innerHeight) >= 2.4 ? './assets/poster-wall.jpg' : './assets/poster.jpg';
+          if (!window.caches) { poster.src = fallback; return; }
+          caches.open('esg-tree-3d')
+            .then(function (cache) { return cache.match('./assets/poster-live.jpg'); })
+            .then(function (saved) { return saved ? saved.blob() : null; })
+            .then(function (blob) { poster.src = blob ? URL.createObjectURL(blob) : fallback; })
+            .catch(function () { poster.src = fallback; });
+        })();
+      </script>
     </div>
 
+    <header class="masthead glass-card" tabindex="0" aria-label="ESG Centre, ESG Tree">
+      <p class="eyebrow"><span class="mark" aria-hidden="true">✦</span> ESG CENTRE <span class="divider"></span> STAGE 4</p>
+      <h1>ESG Tree</h1>
+      <p class="species"><i>Terminalia catappa</i><span>·</span> A living river valley</p>
+    </header>
+
+    <section class="weather-panel glass-card" aria-label="Weather">
+      <p class="panel-label" id="weather-title">Weather</p>
+      <div class="weather-source" role="group" aria-label="Weather source">
+        <button type="button" id="live-weather" aria-pressed="true" disabled>Live Singapore</button>
+        <button type="button" id="manual-weather" aria-pressed="false" disabled>Manual</button>
+      </div>
+      <div class="weather-location" id="weather-location" hidden>
+        <label for="weather-area">Rain area</label>
+        <select id="weather-area" disabled>
+          <option value="all">All Singapore</option>
+          <option value="location">Use my location</option>
+        </select>
+        <p id="weather-location-note" role="status" hidden></p>
+      </div>
+      <p id="weather-readout" aria-live="polite" hidden></p>
+      <div class="weather-options" role="group" aria-label="Time of day">
+        <button type="button" data-sky="sunrise" aria-pressed="false" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17h18M5 21h14M7 17a5 5 0 0 1 10 0M12 8V2m-3 3 3-3 3 3M4 9l2 2m14-2-2 2"/></svg>
+          <span>Sunrise</span>
+        </button>
+        <button type="button" data-sky="day" aria-pressed="false" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></svg>
+          <span>Day</span>
+        </button>
+        <button type="button" data-sky="sunset" aria-pressed="false" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17h18M5 21h14M7 17a5 5 0 0 1 10 0M12 3v3M4 9l2 2m14-2-2 2M12 8v3"/></svg>
+          <span>Sunset</span>
+        </button>
+        <button type="button" data-sky="night" aria-pressed="false" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 15.5A8.5 8.5 0 0 1 8.5 4 8.5 8.5 0 1 0 20 15.5Z"/><path d="M17 3v4m-2-2h4"/></svg>
+          <span>Night</span>
+        </button>
+      </div>
+      <div class="weather-actions">
+        <button type="button" id="rain-weather" aria-pressed="false" title="Toggle manual rain and thunder" disabled>Rain</button>
+        <button type="button" id="play-sunset" aria-pressed="false" title="Ease from daylight through sunset into night" disabled>Play sunset</button>
+      </div>
+    </section>
+
+    <div class="river-monitor">
+      <section class="river-level-panel glass-card" id="river-level-panel" aria-labelledby="river-level-title" data-stage="normal">
+        <div class="river-level-heading">
+          <h2 id="river-level-title">River level</h2>
+          <span>Simulated</span>
+        </div>
+        <div class="river-level-reading">
+          <strong id="river-level-status" role="status" aria-atomic="true">Normal</strong>
+          <span><b id="river-level-value">35%</b> of bank height</span>
+        </div>
+        <div id="river-level-meter" role="meter" aria-label="Simulated river level"
+          aria-valuemin="0" aria-valuemax="117" aria-valuenow="35" aria-valuetext="35% of modeled bank height, Normal">
+          <span class="river-level-marker" aria-hidden="true"></span>
+        </div>
+        <p id="river-level-detail">Below the bank mark</p>
+        <label for="river-level-mode" class="access">River level mode</label>
+        <select id="river-level-mode" disabled>
+          <option value="auto">Auto (rain)</option>
+          <option value="normal">Preview Normal</option>
+          <option value="high">Preview High</option>
+          <option value="danger">Preview Danger</option>
+        </select>
+      </section>
+      <div id="wind-readout" class="wind-readout" aria-label="Wind status">
+        <span id="wind-dot" class="wind-dot"></span>
+        <span id="wind-status">Breeze</span>
+      </div>
+    </div>
+
+    <!-- Hidden while the scene builds behind the still picture; shown only if the 3D view cannot load. -->
+    <div id="loading" class="loading" role="status" hidden>
+      <span class="loader" aria-hidden="true"></span>
+      <div><strong>Preparing the ESG Tree</strong><span id="loading-detail">Loading the tree and river models</span></div>
+    </div>
+
+    <section id="soil-panel" class="glass-card soil-panel" aria-labelledby="soil-title" hidden>
+      <div class="soil-heading">
+        <h2 id="soil-title">Below the forest floor</h2>
+        <button type="button" id="close-soil" aria-label="Close soil view">×</button>
+      </div>
+      <canvas id="soil-view" role="img" aria-label="3D cutaway of soil layers, roots, fungal threads and enlarged soil microbes"></canvas>
+      <p id="soil-unavailable" hidden>The 3D soil view could not load.</p>
+      <div class="soil-key" aria-label="Cutaway key">
+        <span><i class="root-key"></i>Roots</span>
+        <span><i class="fungus-key"></i>Fungal threads</span>
+        <span><i class="microbe-key"></i>Microbes, enlarged</span>
+      </div>
+      <p>Fungi grow around roots. Soil microbes help break down dead plant material.</p>
+    </section>
+
+    <footer class="dock">
+      <nav class="controls" aria-label="Landscape controls">
+        <button type="button" id="sound" disabled aria-pressed="false" title="Toggle river, wind, birds, rain and thunder sounds">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4V5ZM15 9c1.5 1.6 1.5 4.4 0 6m3-9c3.4 3.2 3.4 8.8 0 12"/></svg>
+          <span>Enable sound</span>
+        </button>
+        <label class="volume-control" title="Ambience volume">
+          <span class="access">Ambience volume</span>
+          <input type="range" id="volume" min="0" max="100" step="1" value="78" disabled>
+        </label>
+        <button type="button" id="slow-orbit" disabled aria-pressed="false" aria-controls="landscape"
+          title="Toggle automatic orbit at 15 degrees per hour">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 9a8.5 8.5 0 1 0 .1 6M20 4v5h-5"/><circle cx="12" cy="12" r="2"/></svg>
+          <span>24h orbit</span>
+        </button>
+        <button type="button" id="gust" disabled title="Preview a wind gust">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8h12a2.5 2.5 0 1 0-2.5-2.5M3 12h16a2 2 0 1 1-2 2M3 16h8a2.5 2.5 0 1 1-2.5 2.5"/></svg>
+          <span>Wind now</span>
+        </button>
+        <button type="button" id="soil-life" disabled aria-expanded="false" aria-controls="soil-panel" title="Explore a 3D soil cutaway">
+          <span>Soil life</span>
+        </button>
+        <span class="separator" aria-hidden="true"></span>
+        <button type="button" id="fullscreen" disabled class="icon-button" title="Toggle fullscreen" aria-label="Toggle fullscreen">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H4v5m11-5h5v5m0 6v5h-5M4 15v5h5"/></svg>
+        </button>
+      </nav>
+      <span class="access" id="message" role="status" aria-live="polite"></span>
+    </footer>
+    <p class="credit"><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap contributors</a> <span>·</span> <a href="./CREDITS.md" target="_blank" rel="noopener">Scene credits</a></p>
+  </main>
 </body>
 </html>

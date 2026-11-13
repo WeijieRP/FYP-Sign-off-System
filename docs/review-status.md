@@ -157,9 +157,9 @@ Commits so far: `a03bbeb` CI-flagged fixes, `02240df` dotenv, `4609ec9` admin ba
 | fixed | tree admin | leaf thresholds were saved but never loaded back into the form | admin/js/tree.js | e71ff16 |
 | fixed | tree admin | Auto/Manual stage toggle was only wired after a page reload, never after a fresh login | admin/js/tree.js, navigation.js | e71ff16 |
 | fixed | tree routes | year computed three different ways (SQL YEAR, JS getFullYear, CONVERT_TZ) | tree/routes.js 114, 177 | 0d57c1c |
-| open | 3D tree | the 3D page never draws a leaf: the tree-image line is commented out | 3dTree.js 112, 865 | |
-| open | 3D tree | title box and VIP settings ignored; VIP folder `vip_leaf` should be `vip-leaf` | 3dTree.js 315, 1133 | |
-| open | 3D tree | model-viewer only from a Google CDN, no fallback | 3dTree.html 7 | |
+| closed | 3D tree | the 3D page never draws a leaf: the tree-image line is commented out | 3dTree.js 112, 865 | old 3D page replaced by the Ketapang River scene |
+| closed | 3D tree | title box and VIP settings ignored; VIP folder `vip_leaf` should be `vip-leaf` | 3dTree.js 315, 1133 | old 3D page replaced by the Ketapang River scene |
+| closed | 3D tree | model-viewer only from a Google CDN, no fallback | 3dTree.html 7 | old 3D page replaced by the Ketapang River scene |
 | open | tree | live tree polls every 5 s regardless of leafRefreshInterval, 4 requests and a full rebuild each time | tree.js 2042 | |
 | open | tree admin | auto growth stage is computed once at save time; nothing re-evaluates it as leaves arrive | admin/js/tree.js, routes.js | |
 | open | tree admin | empty number boxes save 0 and the wall uses hidden defaults | parameters.js, tree.js 411 | |
