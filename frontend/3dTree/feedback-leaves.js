@@ -899,34 +899,49 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
 
   // ---------- falling (as the 2D leaf fall) ----------
 
+  // The oldest leaf, pushed off the tree by a new one (first in, first out), drops like a real leaf, very
+  // smoothly: it lets go gently, glides down in one wide curve (out to its side and a little towards the
+  // viewer, never turning back, no zigzag), rocking softly and turning slowly as it tips back towards lying
+  // flat, and settles on the ground as it fades away. Every movement starts and ends gently, so nothing
+  // jerks. It takes the admin's Leaf Fall Duration (4.2 seconds by default; longer is slower and softer).
   function startFall(leaf) {
     const random = seededRandom(`${leaf.key}|fall`);
+    const side = leaf.mesh.position.x - tree.position.x >= 0 ? 1 : -1; // drifts out, away from the trunk
     leaf.fall = {
       began: now(),
       duration: timing().fall,       // the admin's Leaf Fall Duration (4.2 seconds by default)
       from: leaf.mesh.position.clone(),
       fromQuaternion: leaf.mesh.quaternion.clone(),
       ground: tree.position.y + 0.15,
-      drift: new T.Vector3((random() - 0.5) * 3, 0, (random() - 0.5) * 3 + 1.2),
-      axis: new T.Vector3(random() - 0.5, random() - 0.5, random() - 0.5).normalize(),
-      spin: (1.2 + random() * 1.6) * Math.PI,
-      sway: 0.6 + random() * 0.6,
+      drift: new T.Vector3(side * (1 + random() * 1.4), 0, 0.6 + random() * 1.1),
+      flat: new T.Quaternion().setFromAxisAngle(UP, random() * Math.PI * 2), // lying flat, face up
+      rock: 0.12 + random() * 0.1,   // how far it rocks (radians), slowly, about once on the way down
+      turn: (random() - 0.5) * Math.PI * 0.5, // a slow quarter turn at most
+      phase: random() * Math.PI * 2,
     };
     leaf.state = 'falling';
     leaf.halo.visible = false;
   }
 
+  const UP = new T.Vector3(0, 1, 0);
+  const fallTurn = new T.Quaternion(), fallRock = new T.Quaternion();
+  const FALL_ROCK_AXIS = new T.Vector3(1, 0, 0);
   function placeFall(leaf, time) {
     const f = leaf.fall;
     const t = Math.min(1, (time - f.began) / f.duration);
-    const drop = t ** 1.6;
+    const down = (1 - Math.cos(Math.PI * t)) / 2; // lets go gently, glides, settles softly
+    const out = Math.sin((Math.PI / 2) * t);      // drifts out quickly at first, then slows (never back)
     leaf.mesh.position.set(
-      f.from.x + f.drift.x * t + Math.sin(t * Math.PI * 3) * f.sway * (1 - t),
-      T.MathUtils.lerp(f.from.y, f.ground, drop),
-      f.from.z + f.drift.z * t,
+      f.from.x + f.drift.x * out,
+      T.MathUtils.lerp(f.from.y, f.ground, down),
+      f.from.z + f.drift.z * out,
     );
-    leaf.mesh.quaternion.copy(f.fromQuaternion).multiply(new T.Quaternion().setFromAxisAngle(f.axis, f.spin * t));
-    leaf.material.opacity = 1 - smoothstep(0.7, 1, t);
+    // Tipping back towards lying flat (halfway, so it stays visible), turning slowly and rocking softly.
+    leaf.mesh.quaternion.slerpQuaternions(f.fromQuaternion, f.flat, 0.5 * down);
+    leaf.mesh.quaternion.multiply(fallTurn.setFromAxisAngle(UP, f.turn * down));
+    leaf.mesh.quaternion.multiply(fallRock.setFromAxisAngle(FALL_ROCK_AXIS,
+      f.rock * Math.sin(Math.PI * 1.6 * t + f.phase) * Math.sin(Math.PI * t)));
+    leaf.material.opacity = 1 - smoothstep(0.72, 1, t);
     return t >= 1;
   }
 
