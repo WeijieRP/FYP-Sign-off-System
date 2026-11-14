@@ -697,3 +697,96 @@ body[data-weather="sunset"], body[data-weather="sunrise"] { --glass-glow: 252,18
 .hide-year-review .year-review-book { display: none; }
 .title-at-top-left .river-monitor { top: var(--title-clearance, 150px); }
 .title-at-top-right .weather-panel { top: var(--title-clearance, 150px); }
+
+/* A feedback leaf's details, opened by clicking the leaf: the 2D tree's leaf detail card (tree.css), placed
+   beside the clicked leaf by leaf-detail.js (left and top), on the side with more room. */
+.leaf-detail-card {
+    position: absolute;
+    left: 0;
+    top: 0;
+    z-index: 30;
+    width: min(340px, calc(100vw - 32px));
+    padding: 22px;
+    border: 1px solid rgba(187, 213, 196, 0.9);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: 0 18px 46px rgba(15, 42, 27, 0.18);
+    color: #17412a;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(10px);
+    pointer-events: none;
+    transition: opacity 180ms ease, transform 180ms ease, visibility 0s linear 180ms;
+}
+
+.leaf-detail-card.active {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+    pointer-events: auto;
+    transition: opacity 180ms ease, transform 180ms ease, visibility 0s;
+}
+
+.leaf-detail-close {
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    width: 30px;
+    height: 30px;
+    border: 0;
+    border-radius: 50%;
+    background: #e8f5ec;
+    color: #24583a;
+    cursor: pointer;
+    font-size: 20px;
+    line-height: 1;
+}
+
+.leaf-detail-kicker {
+    margin: 0 34px 8px 0;
+    color: #5c7a67;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.leaf-detail-card h2 {
+    margin: 0 0 12px;
+    color: #123520;
+    font-size: 24px;
+    line-height: 1.15;
+    overflow-wrap: anywhere;
+}
+
+.leaf-detail-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.leaf-detail-meta span {
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: #e8f5ec;
+    color: #24583a;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+#leafDetailBadge {
+    border: 1px solid var(--leaf-detail-badge-color, #4a7c59);
+    background: color-mix(in srgb, var(--leaf-detail-badge-color, #4a7c59) 16%, white);
+    color: color-mix(in srgb, var(--leaf-detail-badge-color, #4a7c59) 78%, black);
+}
+
+.leaf-detail-quote {
+    margin: 0;
+    color: #315842;
+    font-size: 15px;
+    line-height: 1.55;
+}
+
+/* A hand over a feedback leaf that can be clicked for its details (feedback-leaves.js). */
+#landscape.over-feedback-leaf { cursor: pointer !important; }

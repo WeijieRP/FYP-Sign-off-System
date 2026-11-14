@@ -33,6 +33,7 @@
 
 import { THREE as T, GLTFLoader } from './vendor/three-runtime.js';
 import { onTree3dSettings } from './tree3d-settings.js';
+import { createLeafDetail } from './leaf-detail.js';
 
 const LEAF_MODEL = '/assets/Tree/3dTreeLeaves/RainTree_Leaf_Final12.glb';
 const MODEL_SIZE = 0.1;          // the leaf model is 10 cm across
@@ -651,6 +652,7 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
   }
 
   function removeLeaf(leaf) {
+    if (leaf === selectedLeaf) details.close(); // its details card goes with it
     group.remove(leaf.mesh, leaf.halo);
     leaf.material.dispose();
     leaf.nameLabel.material.map.dispose();
@@ -921,6 +923,7 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
     };
     leaf.state = 'falling';
     leaf.halo.visible = false;
+    if (leaf === selectedLeaf) details.close(); // a falling leaf's details card closes
   }
 
   const UP = new T.Vector3(0, 1, 0);
@@ -946,6 +949,84 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
     leaf.material.opacity = 1 - smoothstep(0.72, 1, t);
     return t >= 1;
   }
+
+  // ---------- a leaf's details, on click (as the 2D tree) ----------
+
+  // Clicking (or tapping) a leaf opens its details card beside it (leaf-detail.js), and the leaf grows a
+  // little while the card is open. A press that moves is a drag to turn the view, not a click. Only the leaf
+  // itself counts, not the transparent square around it, and where leaves overlap, the one drawn on top.
+  // Clicking away from the leaves closes the card. The cursor shows a hand over a leaf.
+  let selectedLeaf = null;
+  const details = createLeafDetail({ onClose: () => { selectedLeaf = null; } });
+  const canvas = renderer.domElement;
+  const raycaster = new T.Raycaster();
+  const pointer = new T.Vector2();
+  let leafAlpha; // the leaf picture's transparency, read once (null when it cannot be read)
+
+  function readLeafAlpha() {
+    if (leafAlpha !== undefined) return leafAlpha;
+    leafAlpha = null;
+    try {
+      const image = model?.texture?.image;
+      if (!image) return leafAlpha;
+      const size = 256;
+      const sample = document.createElement('canvas');
+      sample.width = sample.height = size;
+      const context = sample.getContext('2d', { willReadFrequently: true });
+      context.drawImage(image, 0, 0, size, size);
+      leafAlpha = { size, data: context.getImageData(0, 0, size, size).data };
+    } catch (error) {
+      console.warn('The leaf picture could not be read for clicks; the whole leaf square counts.', error);
+    }
+    return leafAlpha;
+  }
+
+  function onLeafItself(uv) {
+    const alpha = readLeafAlpha();
+    if (!alpha || !uv) return true;
+    const x = Math.min(alpha.size - 1, Math.max(0, Math.floor(uv.x * alpha.size)));
+    const y = Math.min(alpha.size - 1, Math.max(0, Math.floor(uv.y * alpha.size)));
+    return alpha.data[(y * alpha.size + x) * 4 + 3] > 80;
+  }
+
+  function leafAt(clientX, clientY) {
+    if (!group.visible || !leaves.size) return null;
+    const rect = canvas.getBoundingClientRect();
+    pointer.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+    camera.updateMatrixWorld();
+    raycaster.setFromCamera(pointer, camera);
+    const shown = [...leaves.values()].filter(leaf => leaf.state !== 'falling' && leaf.material.opacity > 0.3);
+    const hits = raycaster.intersectObjects(shown.map(leaf => leaf.mesh), false).filter(hit => onLeafItself(hit.uv));
+    if (!hits.length) return null;
+    hits.sort((a, b) => b.object.renderOrder - a.object.renderOrder); // the leaf drawn on top
+    return shown.find(leaf => leaf.mesh === hits[0].object) || null;
+  }
+
+  let press = null;
+  canvas.addEventListener('pointerdown', event => {
+    press = { x: event.clientX, y: event.clientY, at: performance.now(), id: event.pointerId };
+    canvas.classList.remove('over-feedback-leaf'); // the grab cursor while dragging
+  });
+  canvas.addEventListener('pointerup', event => {
+    if (!press || press.id !== event.pointerId) return;
+    const moved = Math.hypot(event.clientX - press.x, event.clientY - press.y);
+    const quick = performance.now() - press.at < 700;
+    press = null;
+    if (moved > 8 || !quick) return; // a drag that turned the view
+    const leaf = leafAt(event.clientX, event.clientY);
+    if (!leaf) { details.close(); return; }
+    selectedLeaf = leaf;
+    details.show({ visitor: leaf.visitor, badgeColour: badgeColour(leaf.visitor), x: event.clientX, y: event.clientY });
+  });
+  let lastHover = 0;
+  canvas.addEventListener('pointermove', event => {
+    if (event.buttons || event.pointerType === 'touch') return;
+    const time = performance.now();
+    if (time - lastHover < 90) return;
+    lastHover = time;
+    const over = leafAt(event.clientX, event.clientY);
+    canvas.classList.toggle('over-feedback-leaf', Boolean(over));
+  });
 
   // ---------- every frame ----------
 
@@ -988,6 +1069,9 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
         leaf.material.opacity = facingAmount(leaf);
       }
       leaf.material.opacity *= within(settings.leafOpacity, 1, 0.1, 1); // the admin's Leaf Opacity (2D: leafOpacity)
+      // The leaf whose details card is open grows a little, easing in and out.
+      leaf.focus = (leaf.focus || 0) + ((leaf === selectedLeaf ? 1 : 0) - (leaf.focus || 0)) * Math.min(1, dt * 6);
+      if (leaf.focus > 0.001) leaf.mesh.scale.multiplyScalar(1 + 0.15 * leaf.focus);
 
       // A new visitor's green glow comes first (as on the 2D tree); otherwise a VIP leaf pulses gold.
       const glow = leaf.state === 'resting' ? glowAmount(leaf, time) : 0;
