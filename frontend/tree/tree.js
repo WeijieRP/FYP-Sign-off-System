@@ -943,6 +943,13 @@ class TreeManager {
         document.addEventListener('keydown', (event) => {
             if (event.key === 'Escape') this.closeLeafDetail();
         });
+
+        // A click away from the leaves and the card closes it (a leaf's own click opens its card instead).
+        document.addEventListener('click', (event) => {
+            if (!this.leafDetailCard?.classList.contains('active')) return;
+            if (this.leafDetailCard.contains(event.target) || event.target.closest?.('.leaf')) return;
+            this.closeLeafDetail();
+        });
     }
 
     bindDemoControls() {
@@ -1103,8 +1110,11 @@ class TreeManager {
         });
     }
 
-    openLeafDetail(visitor, badgeProfile) {
+    // Opens the clicked leaf's details card beside the leaf (to its right when the leaf is on the left half
+    // of the tree, otherwise to its left), kept on screen. As on the 3D tree (frontend/3dTree/leaf-detail.js).
+    openLeafDetail(visitor, badgeProfile, leafElement) {
         if (!this.leafDetailCard) return;
+        this.selectedLeafKey = leafElement?.dataset?.leafKey || null;
 
         const badgeName = visitor.badgeName || badgeProfile.label || 'Feedback Contributor';
         const snippet = visitor.pledgeSnippet || 'No pledge snippet was shared for this leaf.';
@@ -1126,12 +1136,33 @@ class TreeManager {
             this.leafDetailSnippet.textContent = snippet;
         }
 
+        if (leafElement) this.placeLeafDetail(leafElement.getBoundingClientRect());
         this.leafDetailCard.classList.add('active');
         this.leafDetailCard.setAttribute('aria-hidden', 'false');
     }
 
+    placeLeafDetail(leafRect) {
+        const card = this.leafDetailCard;
+        const room = (card.offsetParent || document.body).getBoundingClientRect();
+        const width = card.offsetWidth;
+        const height = card.offsetHeight;
+        const gap = 18;
+        const margin = 16;
+        const leafX = leafRect.left + (leafRect.width / 2) - room.left;
+        const leafY = leafRect.top + (leafRect.height / 2) - room.top;
+        let left = leafX < room.width / 2
+            ? leafRect.right - room.left + gap
+            : leafRect.left - room.left - gap - width;
+        left = Math.min(room.width - width - margin, Math.max(margin, left));
+        const top = Math.min(room.height - height - margin, Math.max(margin, leafY - (height / 2)));
+        card.style.right = 'auto';
+        card.style.left = `${Math.round(left)}px`;
+        card.style.top = `${Math.round(top)}px`;
+    }
+
     closeLeafDetail() {
         if (!this.leafDetailCard) return;
+        this.selectedLeafKey = null;
         this.leafDetailCard.classList.remove('active');
         this.leafDetailCard.setAttribute('aria-hidden', 'true');
     }
@@ -1915,12 +1946,12 @@ class TreeManager {
 
         leaf.addEventListener('click', (event) => {
             event.stopPropagation();
-            this.openLeafDetail(visitor, badgeProfile);
+            this.openLeafDetail(visitor, badgeProfile, leaf);
         });
         leaf.addEventListener('keydown', (event) => {
             if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault();
-                this.openLeafDetail(visitor, badgeProfile);
+                this.openLeafDetail(visitor, badgeProfile, leaf);
             }
         });
 
@@ -2346,6 +2377,7 @@ class TreeManager {
         leaves.forEach(leaf => {
             leaf.classList.add('leaf-falling');
             this.playLeafFall(leaf);
+            if (leaf.dataset.leafKey === this.selectedLeafKey) this.closeLeafDetail(); // its card goes with it
         });
 
         if (this.leafFallStarted && this.leafFallCycleNumber === leafCycle.cycleNumber) return;
