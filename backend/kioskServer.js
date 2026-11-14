@@ -113,7 +113,8 @@ const pulseRoutes = require('./features/pulse/routes');
 const emailService = require('./features/email/service');
 const parametersConfigStore = require('./features/parameters/store');
 
-const { router: treeRoutes, setDatabase: setTreeDatabase } = require('./features/tree/routes');
+const { router: treeRoutes, setDatabase: setTreeDatabase, countLiveTreeLeaves } = require('./features/tree/routes');
+const { withAutoTreeStage } = require('./features/parameters/treeStage');
 const dataRetentionCleanup = require('./features/archive/retention');
 const QRCode = require('qrcode');
 
@@ -268,9 +269,11 @@ app.use('/api/pledgeboard', pledgeboardRoutes);
 app.use('/api/pulse', pulseRoutes);
 app.use('/api/tree', treeRoutes);
 
-app.get('/api/parameters', (req, res) => {
+app.get('/api/parameters', async (req, res) => {
   try {
-    res.json({ success: true, parameters: parametersConfigStore.readParametersConfig() });
+    // In Auto, the tree's growth stage follows its leaf count (features/parameters/treeStage.js).
+    const parameters = await withAutoTreeStage(parametersConfigStore.readParametersConfig(), countLiveTreeLeaves);
+    res.json({ success: true, parameters });
   } catch (error) {
     console.error('Error loading public parameters:', error);
     res.status(500).json({ success: false, error: 'Failed to load parameters' });

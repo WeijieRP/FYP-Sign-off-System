@@ -90,48 +90,73 @@ router.get('/', (req, res) => {
         // A returning visitor can therefore grow multiple leaves instead of only updating one user row.
         const requestedYear = parseTreeYear(req.query.year);
         const treeYear = requestedYear || getCurrentTreeYear();
-        const leafQuery = `
-            SELECT
-                f.id AS feedback_id,
-                u.name,
-                u.visit_count,
-                u.created_at AS user_created_at,
-                f.created_at,
-                f.comment,
-                f.data_retention,
-                f.metadata,
-                fa.answer_values
-            FROM feedback f
-            JOIN users u ON f.user_id = u.id
-            LEFT JOIN (
-                SELECT feedback_id, GROUP_CONCAT(answer_value SEPARATOR ' ') AS answer_values
-                FROM feedback_answers
-                WHERE answer_value IS NOT NULL
-                  AND TRIM(answer_value) != ''
-                GROUP BY feedback_id
-            ) fa ON fa.feedback_id = f.id
-            WHERE f.is_active = 1
-              AND YEAR(CONVERT_TZ(f.created_at, '+00:00', '+08:00')) = ?
-            ORDER BY f.created_at ASC, f.id ASC
-        `;
 
-        db.all(leafQuery, [treeYear], (userErr, rows) => {
+        loadLeafRows(treeYear, (userErr, visibleRows, hiddenCount) => {
             if (userErr) {
                 console.error('❌ Tree route DB error:', userErr);
                 return res.status(500).json({ error: 'Leaf query error: ' + userErr.message });
             }
-
-            const visibleRows = (rows || []).filter(row => !isFeedbackFlagged([
-                row.comment,
-                row.answer_values
-            ]));
-            const hiddenCount = (rows || []).length - visibleRows.length;
 
             console.log('✅ Tree leaves fetched:', visibleRows.length, hiddenCount ? `(${hiddenCount} flagged hidden)` : '');
             return res.json(mapRowsToVisitors(visibleRows, vipSet));
         });
     });
 });
+
+// The tree's leaves for a year: one per active feedback submission, oldest first, without flagged
+// feedback. GET /api/tree shows these, and the automatic growth stage counts them (countLiveTreeLeaves).
+const LEAF_QUERY = `
+    SELECT
+        f.id AS feedback_id,
+        u.name,
+        u.visit_count,
+        u.created_at AS user_created_at,
+        f.created_at,
+        f.comment,
+        f.data_retention,
+        f.metadata,
+        fa.answer_values
+    FROM feedback f
+    JOIN users u ON f.user_id = u.id
+    LEFT JOIN (
+        SELECT feedback_id, GROUP_CONCAT(answer_value SEPARATOR ' ') AS answer_values
+        FROM feedback_answers
+        WHERE answer_value IS NOT NULL
+          AND TRIM(answer_value) != ''
+        GROUP BY feedback_id
+    ) fa ON fa.feedback_id = f.id
+    WHERE f.is_active = 1
+      AND YEAR(CONVERT_TZ(f.created_at, '+00:00', '+08:00')) = ?
+    ORDER BY f.created_at ASC, f.id ASC
+`;
+
+function loadLeafRows(treeYear, callback) {
+    db.all(LEAF_QUERY, [treeYear], (error, rows) => {
+        if (error) return callback(error);
+        const visibleRows = (rows || []).filter(row => !isFeedbackFlagged([row.comment, row.answer_values]));
+        return callback(null, visibleRows, (rows || []).length - visibleRows.length);
+    });
+}
+
+// How many leaves the live tree has now (this year's, as GET /api/tree returns them), for the automatic
+// growth stage (features/parameters/treeStage.js). The 2D and 3D trees ask every 5 seconds, so the count
+// is kept for 10 seconds.
+const LEAF_COUNT_CACHE_MS = 10 * 1000;
+let leafCountCache = { at: 0, year: null, count: 0 };
+function countLiveTreeLeaves() {
+    const year = getCurrentTreeYear();
+    if (leafCountCache.year === year && Date.now() - leafCountCache.at < LEAF_COUNT_CACHE_MS) {
+        return Promise.resolve(leafCountCache.count);
+    }
+    return new Promise((resolve, reject) => {
+        if (!db) return reject(new Error('Database not initialized'));
+        loadLeafRows(year, (error, visibleRows) => {
+            if (error) return reject(error);
+            leafCountCache = { at: Date.now(), year, count: visibleRows.length };
+            return resolve(visibleRows.length);
+        });
+    });
+}
 
 /**
  * GET /api/tree/years
@@ -279,5 +304,6 @@ router.get('/vip-names', (req, res) => {
 
 module.exports = {
     router,
-    setDatabase
+    setDatabase,
+    countLiveTreeLeaves
 };

@@ -103,6 +103,8 @@ async function saveTreeParameters() {
 
         const payload = {
             treeStage,
+            // Auto: the tree grows by itself with the leaf count (backend/features/parameters/treeStage.js).
+            treeStageMode: mode === 'manual' ? 'manual' : 'auto',
             showTitleBox,
             leafDisplayScale,
             treeDisplayMode,
@@ -311,8 +313,17 @@ async function loadTreeStageSelection() {
             const input = document.getElementById('threshold-' + key);
             if (input && savedThresholds[key] !== undefined && savedThresholds[key] !== null) input.value = savedThresholds[key];
         });
+        // The saved Auto/Manual choice (Auto: the tree grows by itself with the leaf count).
+        const savedMode = treeParameters.treeStageMode === 'auto' ? 'auto' : 'manual';
+        const modeRadio = document.querySelector(`input[name="stageMode"][value="${savedMode}"]`);
+        if (modeRadio && !modeRadio.checked) {
+            modeRadio.checked = true;
+            modeRadio.dispatchEvent(new Event('change'));
+        }
         if (stageStatus) {
-            stageStatus.textContent = `Current: stage ${normalizedStage}. Shown on /tree after apply.`;
+            stageStatus.textContent = savedMode === 'auto'
+                ? 'Auto: the tree grows by itself as leaves are added.'
+                : `Current: stage ${normalizedStage}. Shown on /tree after apply.`;
         }
     } catch (error) {
         console.error('Error loading tree stage selection:', error);

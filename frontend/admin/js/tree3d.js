@@ -389,9 +389,11 @@ async function triggerTree3dAction(action) {
 }
 
 // ---------- 3D Tree Growth Stage ----------
-// The same growth stage as the 2D tree (treeParameters.treeStage and its leafThresholds), set the same way:
-// by hand, or from the leaf count and the thresholds (getCurrentLeafCount and getStageFromLeafCount in
-// tree.js). The /3dTree screen shows the Ketapang Stage 0 to 4 model for it (frontend/3dTree/tree-stage.js).
+// The same growth stage as the 2D tree (treeParameters.treeStage, treeStageMode and leafThresholds), set
+// the same way. Manual: the chosen stage. Auto: the tree grows by itself, the stage following the leaf count
+// and the thresholds (worked out by the server for /api/parameters, backend/features/parameters/
+// treeStage.js; previewed here with getCurrentLeafCount and getStageFromLeafCount from tree.js). The
+// /3dTree screen shows the Ketapang Stage 0 to 4 model for it (frontend/3dTree/tree-stage.js).
 const TREE3D_STAGE_NAMES = ['Bare Trunk', 'Early Growth', 'Young Canopy', 'Mature Canopy', 'Full Canopy'];
 
 function tree3dStageThresholds() {
@@ -425,10 +427,11 @@ function updateTree3dStageMode() {
     if (auto) updateTree3dAutoStage();
 }
 
-// Shows a saved stage and thresholds in this panel and in the 2D tree's panel, so both always agree.
+// Shows a saved stage, mode and thresholds in this panel and in the 2D tree's panel, so both always agree.
 function showTree3dStage(treeParameters) {
     const raw = Number(treeParameters?.treeStage);
     const stage = Number.isInteger(raw) ? Math.max(0, Math.min(4, raw)) : 0;
+    const mode = treeParameters?.treeStageMode === 'auto' ? 'auto' : 'manual';
     const thresholds = treeParameters?.leafThresholds || {};
     for (const [select, prefix] of [[tree3dField('treeStage'), 'tree3d-thresholdStage'], [document.getElementById('param-treeStage'), 'threshold-stage']]) {
         if (select) select.value = String(stage);
@@ -438,10 +441,20 @@ function showTree3dStage(treeParameters) {
             if (input && saved !== undefined && saved !== null) input.value = saved;
         });
     }
+    const radio3d = document.querySelector(`input[name="tree3dStageMode"][value="${mode}"]`);
+    if (radio3d) radio3d.checked = true;
+    const radio2d = document.querySelector(`input[name="stageMode"][value="${mode}"]`);
+    if (radio2d && !radio2d.checked) {
+        radio2d.checked = true;
+        radio2d.dispatchEvent(new Event('change')); // the 2D panel's own handler updates its stage list
+    }
+    const text = mode === 'auto'
+        ? 'Auto: the tree grows by itself as leaves are added.'
+        : `Manual: stage ${stage} (${TREE3D_STAGE_NAMES[stage]}).`;
     const status = tree3dField('stageStatus');
-    if (status) status.textContent = `Current: stage ${stage} (${TREE3D_STAGE_NAMES[stage]}).`;
+    if (status) status.textContent = text;
     const status2d = document.getElementById('tree-stage-status');
-    if (status2d) status2d.textContent = `Current: stage ${stage}. Shown on /tree after apply.`;
+    if (status2d) status2d.textContent = mode === 'auto' ? text : `Current: stage ${stage}. Shown on /tree after apply.`;
     return stage;
 }
 
@@ -464,7 +477,9 @@ async function saveTree3dStage() {
     const status = tree3dField('stageStatus');
     try {
         const leafThresholds = tree3dStageThresholds();
-        const treeStage = tree3dStageIsAuto()
+        const auto = tree3dStageIsAuto();
+        const treeStageMode = auto ? 'auto' : 'manual';
+        const treeStage = auto
             ? await updateTree3dAutoStage()
             : Math.max(0, Math.min(4, Number(tree3dField('treeStage').value) || 0));
         if (status) status.textContent = `Saving stage ${treeStage}...`;
@@ -472,13 +487,19 @@ async function saveTree3dStage() {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
-            body: JSON.stringify({ treeStage, leafThresholds })
+            body: JSON.stringify({ treeStage, treeStageMode, leafThresholds })
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok || !data.success) throw new Error(data.error || 'Failed to save the tree stage');
-        showTree3dStage({ treeStage, leafThresholds });
-        if (status) status.textContent = `Saved: stage ${treeStage} (${TREE3D_STAGE_NAMES[treeStage]}). /3dTree shows it within about 5 seconds.`;
-        showNotification(`Tree growth stage set to stage ${treeStage}. The 3D screen changes within a few seconds.`, 'success');
+        showTree3dStage(data.parameters?.treeParameters || { treeStage, treeStageMode, leafThresholds });
+        if (status) {
+            status.textContent = auto
+                ? `Saved: Auto. Stage ${treeStage} (${TREE3D_STAGE_NAMES[treeStage]}) now; the tree grows by itself as leaves are added.`
+                : `Saved: stage ${treeStage} (${TREE3D_STAGE_NAMES[treeStage]}). /3dTree shows it within about 5 seconds.`;
+        }
+        showNotification(auto
+            ? `Automatic growth on: the tree is at stage ${treeStage} now and grows by itself as leaves are added.`
+            : `Tree growth stage set to stage ${treeStage}. The 3D screen changes within a few seconds.`, 'success');
     } catch (error) {
         console.error('Error saving the 3D tree stage:', error);
         if (status) status.textContent = 'Failed to save the stage. Please try again.';

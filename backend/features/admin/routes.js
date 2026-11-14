@@ -270,6 +270,7 @@ const badgeEmailTemplateStore = require('../email/templateStore');
 const assetStore = require('../assets/store');
 const parametersConfigStore = require('../parameters/store');
 const { normalizeTree3dParameters, mergeTree3dParameters } = require('../parameters/tree3d');
+const { normalizeTreeStageMode, normalizeLeafThresholds } = require('../parameters/treeStage');
 const dataRetentionCleanup = require('../archive/retention');
 const feedbackAnalysisCacheStore = require('../analysis/cacheStore');
 
@@ -6713,7 +6714,7 @@ router.post('/parameters/tree-background/upload', auth.requireAdmin, uploadTreeB
 router.put('/parameters/treeParameters', auth.requireAdmin, (req, res) => {
     try {
         console.debug('🌳 Saving tree parameters');
-        const { treeStage, showTitleBox, leafDisplayScale, vipLeafDisplayScale, leafThresholds, treeTitleBox, treeDisplayMode } = req.body;
+        const { treeStage, treeStageMode, showTitleBox, leafDisplayScale, vipLeafDisplayScale, leafThresholds, treeTitleBox, treeDisplayMode } = req.body;
         const normalizedDisplayMode = treeDisplayMode === undefined
             ? undefined
             : normalizeTreeDisplayMode({ treeDisplayMode }).treeDisplayMode;
@@ -6731,7 +6732,9 @@ router.put('/parameters/treeParameters', auth.requireAdmin, (req, res) => {
         if (showTitleBox !== undefined) config.treeParameters.showTitleBox = showTitleBox;
         if (leafDisplayScale !== undefined) config.treeParameters.leafDisplayScale = leafDisplayScale;
         if (vipLeafDisplayScale !== undefined) config.treeParameters.vipLeafDisplayScale = vipLeafDisplayScale;
-        if (leafThresholds) config.treeParameters.leafThresholds = leafThresholds;
+        if (leafThresholds) config.treeParameters.leafThresholds = normalizeLeafThresholds(leafThresholds);
+        // Auto: the tree grows by itself with its leaf count (features/parameters/treeStage.js).
+        if (treeStageMode !== undefined) config.treeParameters.treeStageMode = normalizeTreeStageMode(treeStageMode);
         if (normalizedDisplayMode !== undefined) config.treeParameters.treeDisplayMode = normalizedDisplayMode;
 
         // Handle treeTitleBox – merge with existing, but DO NOT override with root showTitleBox

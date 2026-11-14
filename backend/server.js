@@ -148,7 +148,8 @@ function requireMobileTokenForPledgeboard(req, res, next) {
 }
 
 // Import tree routes and wire them to the shared DB
-const { router: treeRoutes, setDatabase: setTreeDatabase } = require('./features/tree/routes');
+const { router: treeRoutes, setDatabase: setTreeDatabase, countLiveTreeLeaves } = require('./features/tree/routes');
+const { withAutoTreeStage } = require('./features/parameters/treeStage');
 
 // Import cleanup module
 const dataRetentionCleanup = require('./features/archive/retention');
@@ -441,9 +442,11 @@ app.use('/api/pulse', pulseRoutes);
 // Tree API for the leaves (names from feedback.db)
 app.use('/api/tree', treeRoutes);
 
-app.get('/api/parameters', (req, res) => {
+app.get('/api/parameters', async (req, res) => {
     try {
-        res.json({ success: true, parameters: parametersConfigStore.readParametersConfig() });
+        // In Auto, the tree's growth stage follows its leaf count (features/parameters/treeStage.js).
+        const parameters = await withAutoTreeStage(parametersConfigStore.readParametersConfig(), countLiveTreeLeaves);
+        res.json({ success: true, parameters });
     } catch (error) {
         console.error('Error loading public parameters:', error);
         res.status(500).json({ success: false, error: 'Failed to load parameters' });
