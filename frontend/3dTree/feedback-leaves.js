@@ -4,8 +4,10 @@
 //     never overlapping another leaf, and its own random angle;
 //   - left and right leaves, as the 2D tree's LeftLeaf / RightLeaf pictures: the RainTree leaf as it is
 //     is a right leaf, mirrored it is a left leaf (mixed at random, or one side, from the admin);
-//   - a new feedback's leaf flies in from the bottom middle of the screen in a smooth zigzag, starting
-//     at twice its size and shrinking to its place on the tree;
+//   - a new feedback's leaf appears at the bottom middle of the screen at twice its size and slowly floats
+//     up to its place on the tree like a falling leaf in reverse: swinging gently from side to side and
+//     rocking like a cradle, the swings dying away as it shrinks and settles onto its twig;
+//   - leaves are placed where the viewer sees them: on screen, and not under the title box;
 //   - a new visitor's leaf glows green for the first minute;
 //   - the same leaves as the 2D tree: its "Maximum Visible Leaves" (leafFallThreshold) newest leaves, the
 //     oldest falling when a new one arrives; none at growth stage 0 (bare trunk); all of a reviewed year's;
@@ -15,8 +17,11 @@
 //     font size on every leaf, never upside down or mirrored;
 //   - feedback leaves are never covered by the tree's own leaves: they are drawn on top of the foliage (as
 //     the 2D leaves sit on top of the tree picture), nearer ones over farther ones, never overlapping each
-//     other as seen by the viewer; a leaf that the slow orbit carries round the back of the tree fades away
-//     rather than showing through it;
+//     other as seen by the viewer;
+//   - when the view turns round the tree (dragging, the arrow keys or the slow 24h orbit), visitor leaves
+//     turn round the tree with it, so they stay on the side facing the viewer at the same angle and their
+//     names stay readable on screen. VIP leaves stay fixed on the tree; one that the view leaves round the
+//     back of the tree fades away rather than showing through it, and comes back when the view returns;
 //   - every leaf stays easy to see on the canopy: it is never darker than a set lightness;
 //   - the leaf's veins show: the leaf model's own vein relief (its normal map) shades the leaf as if lit from
 //     the upper left, and the faint vein lines of its picture are strengthened, so they read at a distance;
@@ -28,6 +33,7 @@
 
 import { THREE as T, GLTFLoader } from './vendor/three-runtime.js';
 import { onTree3dSettings } from './tree3d-settings.js';
+import { orbitCentre } from './tree-view.js';
 
 const LEAF_MODEL = '/assets/Tree/3dTreeLeaves/RainTree_Leaf_Final12.glb';
 const MODEL_SIZE = 0.1;          // the leaf model is 10 cm across
@@ -37,6 +43,8 @@ const RECENT_LANDING_MS = 2 * 60 * 1000; // on opening, leaves this recent fly i
 const GLOW_MS = 60 * 1000;       // a new visitor's leaf glows for a minute (2D: leafGlowDurationMs)
 const GLOW_FADE_MS = 900;
 const FALL_MS = 4200;            // 2D: leafFallDuration
+const FLOAT_MS = 7200;           // a new leaf floats up for 7.2 to 8.4 seconds (slower than the 2D flight)
+const NAME_FLIP_MARGIN = 0.44;   // a name turns over only when its leaf is 25 degrees past upright (no flicker)
 const TINT_BOOST = 2.3;          // the leaf picture is mid grey: this brings the chosen colour back to strength
 const NEON = new T.Color(0x39ff14);
 const MIN_LIGHTNESS = 0.38;      // a leaf colour is shown at least this light (HSL), so it stands out on the canopy
@@ -312,6 +320,7 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
     }
     model = { geometry: mesh.geometry, texture, normalMap };
     anchors = canopyAnchors(tree).anchors;
+    reach = measureReach();
     refresh();
     window.setInterval(() => { if (mode.live) refresh(); }, POLL_MS);
   }).catch(error => console.warn('Feedback leaves could not be loaded; the tree shows without them.', error));
@@ -412,7 +421,14 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
       const existing = leaves.get(key);
       if (existing) {
         existing.visitor = visitor;
-        existing.isVip = isVipVisitor(visitor);
+        const isVip = isVipVisitor(visitor);
+        if (isVip !== existing.isVip) {
+          // Made VIP (or no longer VIP): it now stays fixed (or turns with the view) from where it is shown.
+          const shown = shownSpot(existing, existing.shown);
+          existing.spot = { ...existing.spot, position: shown.position.clone(), quaternion: shown.quaternion.clone(), outward: shown.outward.clone(), azimuth: viewAzimuth() };
+          placed.set(key, existing.spot);
+        }
+        existing.isVip = isVip;
         tintLeaf(existing);
         if ((visitor?.name || '') !== existing.nameLabel.userData.name) { // a name changed (e.g. made public)
           existing.nameLabel.material.map.dispose();
@@ -434,11 +450,13 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
     const random = seededRandom(`${key}|spot`);
     const size = BASE_SIZE * Math.max(1, settings.leafScale, settings.vipLeafScale);
     const toCamera = new T.Vector3();
-    // Prefer spots facing the viewer, so the leaves are seen; any spot if too few face this way.
+    // Prefer spots facing the viewer, so the leaves are seen; any spot if too few face this way. Among
+    // those, prefer spots on screen and clear of the title box.
     const facing = anchors.filter(anchor => anchor.outward.dot(toCamera.subVectors(camera.position, anchor.position).normalize()) > 0.2);
-    const pool = facing.length > 40 ? facing : anchors;
+    const seen = facing.filter(anchor => seenOnScreen(anchor.position, size));
+    const pool = seen.length > 40 ? seen : facing.length > 40 ? facing : anchors;
     if (!pool.length) return null;
-    const taken = [...leaves.values()].filter(leaf => leaf.state !== 'falling').map(leaf => leaf.spot.position);
+    const taken = [...leaves.values()].filter(leaf => leaf.state !== 'falling').map(leaf => shownSpot(leaf, leaf.shown).position);
     // How far apart two spots look to the viewer: their distance across the view, leaving out depth.
     const viewDirection = camera.getWorldDirection(new T.Vector3());
     const offset = new T.Vector3();
@@ -465,9 +483,92 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
       local: tree.worldToLocal(best.position.clone()), // for the same wind sway as the tree's leaves
       phase: random() * Math.PI * 2,
       prefersLeft: random() > 0.5, // its side when left and right leaves are mixed
+      azimuth: viewAzimuth(),      // the view's angle round the tree when the spot was chosen
     };
     placed.set(key, spot);
     return spot;
+  }
+
+  // ---------- turning with the view ----------
+
+  // The view's angle round the tree's upright axis (the point tree-view.js turns the camera around).
+  const orbitAxis = new T.Vector3(orbitCentre.x, 0, orbitCentre.z);
+  const UP = new T.Vector3(0, 1, 0);
+  function viewAzimuth() {
+    return Math.atan2(camera.position.x - orbitCentre.x, camera.position.z - orbitCentre.z);
+  }
+
+  // How far the canopy reaches out from the trunk in each direction (24 directions, 15 degrees apart),
+  // measured from its outer leaves. The canopy is wider side to side than front to back, so a leaf turned
+  // to a direction where it reaches less is drawn in to stay on the foliage.
+  const REACH_DIRECTIONS = 24;
+  let reach = null;
+  function measureReach() {
+    const radii = Array.from({ length: REACH_DIRECTIONS }, () => []);
+    for (const anchor of anchors) {
+      const dx = anchor.position.x - orbitCentre.x, dz = anchor.position.z - orbitCentre.z;
+      const index = Math.round(Math.atan2(dx, dz) / (Math.PI * 2) * REACH_DIRECTIONS);
+      radii[((index % REACH_DIRECTIONS) + REACH_DIRECTIONS) % REACH_DIRECTIONS].push(Math.hypot(dx, dz));
+    }
+    const far = radii.map(list => {
+      if (!list.length) return 0;
+      list.sort((a, b) => a - b);
+      return list[Math.floor((list.length - 1) * 0.95)];
+    });
+    if (!far.some(Boolean)) return null;
+    for (let pass = 0; pass < REACH_DIRECTIONS && far.some(r => !r); pass++) { // fill gaps from neighbours
+      far.forEach((r, i) => { if (!r) far[i] = far[(i + 1) % REACH_DIRECTIONS] || far[(i + REACH_DIRECTIONS - 1) % REACH_DIRECTIONS]; });
+    }
+    return far.map((r, i) => 0.25 * far[(i + REACH_DIRECTIONS - 1) % REACH_DIRECTIONS] + 0.5 * r + 0.25 * far[(i + 1) % REACH_DIRECTIONS]);
+  }
+  function reachAt(angle) {
+    const at = ((angle / (Math.PI * 2) * REACH_DIRECTIONS) % REACH_DIRECTIONS + REACH_DIRECTIONS) % REACH_DIRECTIONS;
+    const i = Math.floor(at), k = at - i;
+    return reach[i] * (1 - k) + reach[(i + 1) % REACH_DIRECTIONS] * k;
+  }
+
+  // Where a leaf's spot is shown now. A visitor leaf's spot turns round the tree by as much as the view has
+  // turned since the spot was chosen, so the leaf stays where the viewer saw it, at the same angle (a leaf
+  // near the canopy's edge is drawn in where the canopy reaches less); a VIP leaf's spot stays fixed.
+  const turning = new T.Quaternion();
+  function shownSpot(leaf, out) {
+    const turn = leaf.isVip ? 0 : viewAzimuth() - (leaf.spot.azimuth ?? viewAzimuth());
+    turning.setFromAxisAngle(UP, turn);
+    out.position.copy(leaf.spot.position).sub(orbitAxis).applyQuaternion(turning);
+    if (turn && reach) {
+      const radius = Math.hypot(leaf.spot.position.x - orbitCentre.x, leaf.spot.position.z - orbitCentre.z);
+      const from = Math.atan2(leaf.spot.position.x - orbitCentre.x, leaf.spot.position.z - orbitCentre.z);
+      const fromReach = reachAt(from);
+      const narrower = Math.min(1, reachAt(from + turn) / fromReach);
+      const nearEdge = smoothstep(0.45, 0.9, radius / fromReach);
+      const drawIn = 1 + (narrower - 1) * nearEdge;
+      out.position.x *= drawIn;
+      out.position.z *= drawIn;
+    }
+    out.position.add(orbitAxis);
+    out.quaternion.copy(turning).multiply(leaf.spot.quaternion);
+    out.outward.copy(leaf.spot.outward).applyQuaternion(turning);
+    return out;
+  }
+
+  // Whether a leaf of this size at this point is fully on screen and not under the title box.
+  const onScreen = new T.Vector3();
+  function seenOnScreen(position, size) {
+    camera.updateMatrixWorld();
+    onScreen.copy(position).project(camera);
+    if (onScreen.z > 1) return false;
+    const width = renderer.domElement.clientWidth || window.innerWidth;
+    const height = renderer.domElement.clientHeight || window.innerHeight;
+    const depth = position.distanceTo(camera.position);
+    const halfPx = (size / 2) / (2 * depth * Math.tan(T.MathUtils.degToRad(camera.fov / 2))) * height;
+    const x = (onScreen.x + 1) / 2 * width, y = (1 - onScreen.y) / 2 * height;
+    if (x < halfPx || x > width - halfPx || y < halfPx || y > height - halfPx) return false;
+    const title = document.querySelector('.masthead');
+    const box = title?.getBoundingClientRect();
+    if (!box || !box.width || getComputedStyle(title).visibility === 'hidden') return true;
+    const canvasBox = renderer.domElement.getBoundingClientRect();
+    const left = box.left - canvasBox.left, top = box.top - canvasBox.top;
+    return x + halfPx < left || x - halfPx > left + box.width || y + halfPx < top || y - halfPx > top + box.height;
   }
 
   function createLeaf(key, visitor) {
@@ -503,6 +604,8 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
     group.add(halo);
     const isVip = isVipVisitor(visitor);
     const leaf = { key, visitor, isVip, spot, mesh, material, nameLabel: nameMesh, halo, state: 'resting', scale: currentScale({ isVip }), colour: new T.Color() };
+    leaf.shown = { position: new T.Vector3(), quaternion: new T.Quaternion(), outward: new T.Vector3() };
+    shownSpot(leaf, leaf.shown);
     tintLeaf(leaf, true);
     placeAtRest(leaf, 0);
     return leaf;
@@ -544,9 +647,12 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
     textUp.set(label.position.x, 0, label.position.z - 0.01).applyMatrix4(m).project(camera).sub(centre);
     alongMidrib.x *= camera.aspect;
     textUp.x *= camera.aspect;
-    // Left to right on screen (angle within -90..90 degrees, as the 2D names) ...
-    const angle = Math.atan2(alongMidrib.y, alongMidrib.x);
-    const across = angle > Math.PI / 2 || angle <= -Math.PI / 2 ? -1 : 1;
+    // Left to right on screen (angle within -90..90 degrees, as the 2D names); a swaying or floating leaf
+    // keeps its name's direction until it is clearly past upright, so the name never flickers over ...
+    const lean = Math.abs(Math.atan2(alongMidrib.y, alongMidrib.x));
+    let across = lean > Math.PI / 2 ? -1 : 1;
+    if (leaf.nameAcross && Math.abs(lean - Math.PI / 2) < NAME_FLIP_MARGIN) across = leaf.nameAcross;
+    leaf.nameAcross = across;
     // ... and the right way up, not mirrored.
     const upright = (alongMidrib.x * across) * textUp.y - (alongMidrib.y * across) * textUp.x >= 0 ? 1 : -1;
     label.scale.set(width * across, height * upright, 1);
@@ -593,56 +699,82 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
     return fadeIn * fadeOut * pulse;
   }
 
-  // ---------- flying in (as the 2D landing flight) ----------
+  // ---------- floating in (as the 2D landing flight) ----------
 
+  // A new leaf appears at the bottom middle of the screen at twice its size and floats up to its spot like
+  // a falling leaf in reverse: it swings gently from side to side with a steady rhythm, rocking like a
+  // cradle (the end on the outside of each swing lifts, as a pendulum's), while it rises and shrinks. The
+  // swings die away as it arrives, and it settles exactly where it then rests, swaying with the tree.
+  // It floats at the depth of its spot, so it moves across the screen as the 2D leaf does, and it keeps
+  // the angle it will rest at, facing the viewer, so its name reads all the way and nothing turns over.
   function startFlight(leaf, order) {
     const random = seededRandom(`${leaf.key}|flight`);
-    const end = leaf.spot.position;
-    const distance = camera.position.distanceTo(end) * 0.5;
-    // From the bottom middle of the screen, about halfway between the viewer and the tree.
-    const ray = new T.Vector3(0, -0.72, 0.5).unproject(camera).sub(camera.position).normalize();
-    const start = camera.position.clone().addScaledVector(ray, distance);
+    camera.updateMatrixWorld();
+    const forward = camera.getWorldDirection(new T.Vector3());
     const right = new T.Vector3().setFromMatrixColumn(camera.matrixWorld, 0).normalize();
-    const viewWidth = 2 * distance * Math.tan(T.MathUtils.degToRad(camera.fov / 2)) * camera.aspect;
+    const up = new T.Vector3().setFromMatrixColumn(camera.matrixWorld, 1).normalize();
+    const depth = Math.max(1, leaf.shown.position.clone().sub(camera.position).dot(forward));
+    const halfHeight = depth * Math.tan(T.MathUtils.degToRad(camera.fov / 2));
+    // The bottom middle of the screen, with the twice-size leaf fully on screen.
+    const startHalf = leaf.scale * MODEL_SIZE; // half of twice its size
+    const startY = Math.min(-0.35, -1 + startHalf / halfHeight + 0.05);
+    const start = camera.position.clone().addScaledVector(forward, depth).addScaledVector(up, startY * halfHeight);
+    // Its resting angle as the viewer sees it (the midrib across the view), and which side faces the viewer.
+    const midrib = new T.Vector3(1, 0, 0).applyQuaternion(leaf.shown.quaternion);
+    midrib.addScaledVector(forward, -midrib.dot(forward));
+    if (midrib.lengthSq() < 1e-4) midrib.copy(right);
+    midrib.normalize();
+    const restFace = new T.Vector3(0, 1, 0).applyQuaternion(leaf.shown.quaternion);
+    const face = forward.clone().multiplyScalar(restFace.dot(forward) > 0 ? 1 : -1); // towards the viewer, as a rule
     leaf.flight = {
-      start, right,
-      duration: 5600 + random() * 900,
-      delay: Math.min(order * 70 + random() * 120, 640),
+      start, forward, right, up, midrib, face,
+      duration: FLOAT_MS + random() * 1200,
+      delay: Math.min(order * 1100, 4400) + random() * 120, // several new leaves float up one after another
       began: now(),
-      wind: random() > 0.5 ? 1 : -1,
-      swings: 2.2 + random() * 1.3,
-      amplitude: viewWidth * 0.16 * (0.75 + random() * 0.5),
-      bank: 0.2 + random() * 0.2,
-      yaw: 0.4 + random() * 0.45,
-      startQuaternion: new T.Quaternion().setFromUnitVectors(new T.Vector3(0, 1, 0), ray.clone().negate())
-        .multiply(new T.Quaternion().setFromAxisAngle(new T.Vector3(0, 1, 0), random() * Math.PI * 2)),
+      swings: 4 + random() * 1.2,                       // side-to-side swings on the way up
+      side: random() > 0.5 ? 1 : -1,                    // which way the first swing goes
+      amplitude: halfHeight * camera.aspect * (0.22 + random() * 0.08),
+      rock: 0.24 + random() * 0.1,                      // how far it rocks at the end of a swing (radians)
+      flutter: 0.25 + random() * 0.15,                  // how far it tips about its midrib (radians)
     };
     leaf.state = 'landing';
   }
 
-  function placeFlight(leaf, time) {
+  const restPosition = new T.Vector3(), restPose = new T.Quaternion(), floatPose = new T.Quaternion();
+  const axisX = new T.Vector3(), axisZ = new T.Vector3(), basis = new T.Matrix4(), tipping = new T.Quaternion();
+  const MIDRIB_AXIS = new T.Vector3(1, 0, 0);
+  function placeFlight(leaf, time, elapsed) {
     const f = leaf.flight;
     const t = Math.min(1, Math.max(0, (time - f.began - f.delay) / f.duration));
-    const s = flightEase(t);
-    const envelope = (1 - s) ** 1.1;
-    const weave = f.wind * f.amplitude * Math.sin(Math.PI * f.swings * s) * envelope;
-    leaf.mesh.position.lerpVectors(f.start, leaf.spot.position, s).addScaledVector(f.right, weave);
-    // Twice the size at the start, shrinking smoothly to its size on the tree.
-    leaf.mesh.scale.setScalar(leaf.scale * (1 + (1 - smoothstep(0, 1, s))));
+    // Where it would rest right now, swaying with the tree, so the float ends exactly there.
+    placeAtRest(leaf, elapsed);
+    restPosition.copy(leaf.mesh.position);
+    restPose.copy(leaf.mesh.quaternion);
+
+    const s = flightEase(t);            // the way up: gentle start, long soft arrival
+    const swing = Math.PI * f.swings * t; // a steady rhythm, as a falling leaf's
+    const calm = (1 - s) ** 1.3;          // the swings die away as it arrives
+    const sway = Math.sin(swing) * calm;
+    leaf.mesh.position.lerpVectors(f.start, restPosition, s)
+      .addScaledVector(f.right, f.side * f.amplitude * sway)
+      .addScaledVector(f.up, 0.16 * f.amplitude * Math.sin(swing) ** 2 * calm); // lifting at each end
+
+    // Facing the viewer at its resting angle, rocking with the swing and tipping about its midrib.
+    axisX.copy(f.midrib).applyAxisAngle(f.forward, -f.side * f.rock * sway);
+    axisZ.crossVectors(axisX, f.face);
+    basis.makeBasis(axisX, f.face, axisZ);
+    floatPose.setFromRotationMatrix(basis);
+    floatPose.multiply(tipping.setFromAxisAngle(MIDRIB_AXIS, f.flutter * Math.sin(swing * 2 + 0.6) * calm));
+    leaf.mesh.quaternion.slerpQuaternions(floatPose, restPose, smoothstep(0.55, 1, s));
+
+    // Twice its size at the start, shrinking smoothly to its size on the tree.
+    leaf.mesh.scale.setScalar(leaf.scale * (1 + (1 - s) ** 1.4));
     leaf.mesh.scale.x *= sideSign(leaf);
-    // Turning from facing the viewer to its own angle, leaning into each swing and calming down.
-    const flutter = new T.Quaternion().setFromEuler(new T.Euler(
-      f.bank * Math.cos(Math.PI * f.swings * s) * envelope,
-      0,
-      f.yaw * Math.sin(Math.PI * f.swings * s) * envelope,
-    ));
-    leaf.mesh.quaternion.slerpQuaternions(f.startQuaternion, leaf.spot.quaternion, smoothstep(0, 1, s)).multiply(flutter);
-    leaf.material.opacity = smoothstep(0, 0.05, t);
+    leaf.material.opacity = smoothstep(0, 0.05, t) * T.MathUtils.lerp(1, facingAmount(leaf), smoothstep(0.8, 1, s));
     if (t >= 1) {
       leaf.state = 'resting';
       leaf.restingSince = time;
       leaf.flight = null;
-      leaf.material.opacity = 1;
     }
   }
 
@@ -651,7 +783,8 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
   const sway = new T.Quaternion();
   const swayEuler = new T.Euler();
   function placeAtRest(leaf, elapsed) {
-    const { local, position, quaternion, phase } = leaf.spot;
+    const { local, phase } = leaf.spot;
+    const { position, quaternion } = leaf.shown; // its spot as shown now (turned with the view)
     const gust = clock.gust.value;
     // The same breeze as the tree's own leaves (matte-tree.js), so the leaf stays on its twig.
     const reach = smoothstep(2, 13, local.y);
@@ -702,18 +835,20 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
 
   // ---------- every frame ----------
 
-  // A resting leaf faces the viewer while its spot is on the viewer's side of the canopy; carried round the
-  // back by the slow orbit, it fades away instead of showing through the tree.
+  // A resting leaf shows while its spot is on the viewer's side of the canopy; a VIP leaf that the view
+  // leaves round the back of the tree fades away instead of showing through it.
   const towardsCamera = new T.Vector3();
   function facingAmount(leaf) {
-    towardsCamera.subVectors(camera.position, leaf.spot.position).normalize();
-    return smoothstep(-0.2, 0.15, leaf.spot.outward.dot(towardsCamera));
+    towardsCamera.subVectors(camera.position, leaf.shown.position).normalize();
+    return smoothstep(-0.2, 0.15, leaf.shown.outward.dot(towardsCamera));
   }
 
-  // Nearer leaves are drawn over farther ones: glow, leaf, then its name, leaf by leaf.
+  // Nearer leaves are drawn over farther ones: glow, leaf, then its name, leaf by leaf. A leaf floating in
+  // is drawn over all the resting ones.
   function orderByDistance() {
     const ordered = [...leaves.values()].sort((a, b) =>
-      b.mesh.position.distanceToSquared(camera.position) - a.mesh.position.distanceToSquared(camera.position));
+      (a.state === 'landing') - (b.state === 'landing')
+      || b.mesh.position.distanceToSquared(camera.position) - a.mesh.position.distanceToSquared(camera.position));
     ordered.forEach((leaf, i) => {
       const base = 10 + i * 4;
       leaf.halo.renderOrder = base;
@@ -722,14 +857,50 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
     });
   }
 
+  // Keeping turned leaves apart: drawing edge leaves in, or a VIP leaf staying fixed while the visitor
+  // leaves turn, can bring two leaves together on screen. They are eased apart across the view (a VIP leaf
+  // stays where it is and only pushes, more firmly the more it faces the viewer), so every name stays
+  // readable. The result follows the view smoothly, frame by frame.
+  const apart = new T.Vector3(), viewDirection = new T.Vector3(), sideways = new T.Vector3();
+  function keepApart(list) {
+    camera.getWorldDirection(viewDirection);
+    sideways.setFromMatrixColumn(camera.matrixWorld, 0).normalize();
+    const firmness = list.map(leaf => (leaf.isVip ? smoothstep(0.1, 0.6, facingAmount(leaf)) : 1));
+    for (let pass = 0; pass < 4; pass++) {
+      for (let i = 0; i < list.length; i++) {
+        for (let j = i + 1; j < list.length; j++) {
+          const a = list[i], b = list[j];
+          if (a.isVip && b.isVip) continue;
+          apart.subVectors(a.shown.position, b.shown.position);
+          apart.addScaledVector(viewDirection, -apart.dot(viewDirection));
+          const gap = apart.length();
+          const need = (a.scale + b.scale) * MODEL_SIZE / 2 * 1.1;
+          if (gap >= need) continue;
+          if (gap < 1e-4) apart.copy(sideways);
+          else apart.divideScalar(gap);
+          const push = (need - gap) * firmness[i] * firmness[j];
+          if (a.isVip) b.shown.position.addScaledVector(apart, -push);
+          else if (b.isVip) a.shown.position.addScaledVector(apart, push);
+          else {
+            a.shown.position.addScaledVector(apart, push / 2);
+            b.shown.position.addScaledVector(apart, -push / 2);
+          }
+        }
+      }
+    }
+  }
+
   const haloSize = new T.Vector3();
   function update(dt, elapsed) {
     if (!group.visible) return;
     const time = now();
+    const onTree = [...leaves.values()].filter(leaf => leaf.state !== 'falling');
+    onTree.forEach(leaf => shownSpot(leaf, leaf.shown));
+    keepApart(onTree);
     for (const [key, leaf] of leaves) {
       leaf.scale += (currentScale(leaf) - leaf.scale) * Math.min(1, dt * 4); // size changes ease in
       leaf.colour.lerp(leaf.targetColour, Math.min(1, dt * 3));       // colour changes too
-      if (leaf.state === 'landing') placeFlight(leaf, time);
+      if (leaf.state === 'landing') placeFlight(leaf, time, elapsed);
       else if (leaf.state === 'falling') {
         if (placeFall(leaf, time)) { removeLeaf(leaf); leaves.delete(key); continue; }
       } else {
