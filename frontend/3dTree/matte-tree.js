@@ -15,8 +15,8 @@ function leafWind(material,clock) {
   };
 }
 
-export function addMatteTree(scene,tree,clock) {
-  tree.name='Ketapang | fully grown Stage 4';
+export function addMatteTree(scene,tree,clock,stage=4) {
+  tree.name=stage>=4?'Ketapang | fully grown Stage 4':`Ketapang | growing, Stage ${stage}`;
   tree.position.y=clock.soil.value;
   const materials=new Map();
   function matte(source) {

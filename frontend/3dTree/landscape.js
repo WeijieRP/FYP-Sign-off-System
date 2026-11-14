@@ -13,7 +13,20 @@ export function seeded(seed) {
   };
 }
 
-export async function loadEnvironment(report,lowQuality) {
+// The growth stage's tree (tree-stage.js), or the built-in Stage 4 tree when that one cannot be loaded.
+async function loadTree(loader,url,builtIn) {
+  if (!url) return loader.loadAsync(builtIn);
+  try {
+    return await loader.loadAsync(url);
+  } catch (error) {
+    console.warn(`The tree model ${url} could not be loaded; showing the built-in Stage 4 tree.`,error);
+    const asset=await loader.loadAsync(builtIn);
+    asset.scene.userData.stageFallback=true;
+    return asset;
+  }
+}
+
+export async function loadEnvironment(report,lowQuality,treeUrl) {
   const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
   let done = 0;
   const detail=lowQuality?'-low':'';
@@ -28,7 +41,9 @@ export async function loadEnvironment(report,lowQuality) {
   const total=Object.keys(files).length;
   const parts = await Promise.all([
     ...Object.entries(files).map(async ([name, slug]) => {
-      const asset = await loader.loadAsync(models+slug+'.glb');
+      const asset = name==='tree'
+        ? await loadTree(loader,treeUrl,models+slug+'.glb')
+        : await loader.loadAsync(models+slug+'.glb');
       // Restore the exported display labels and reflection layers.
       asset.scene.traverse(node=>{
         if (node.userData.displayName) node.name=node.userData.displayName;

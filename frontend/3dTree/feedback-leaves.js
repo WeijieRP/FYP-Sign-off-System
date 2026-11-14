@@ -4,9 +4,10 @@
 //     never overlapping another leaf, and its own random angle;
 //   - left and right leaves, as the 2D tree's LeftLeaf / RightLeaf pictures: the RainTree leaf as it is
 //     is a right leaf, mirrored it is a left leaf (mixed at random, or one side, from the admin);
-//   - a new feedback's leaf appears at the bottom middle of the screen at twice its size and slowly floats
-//     up to its place on the tree like a falling leaf in reverse: swinging gently from side to side and
-//     rocking like a cradle, the swings dying away as it shrinks and settles onto its twig;
+//   - a new feedback's leaf appears at the bottom middle of the screen at twice its size and stays there for
+//     12 seconds (SHOWCASE_MS), drifting gently with its name level; then it slowly floats up to its place
+//     on the tree like a falling leaf in reverse: swinging gently from side to side and rocking like a
+//     cradle, the swings dying away as it shrinks and settles onto its twig. Several new leaves take turns;
 //   - leaves are placed where the viewer sees them: on screen, and not under the title box;
 //   - a new visitor's leaf glows green for the first minute;
 //   - the same leaves as the 2D tree: its "Maximum Visible Leaves" (leafFallThreshold) newest leaves, the
@@ -45,6 +46,9 @@ const GLOW_FADE_MS = 900;
 const FALL_MS = 4200;            // 2D: leafFallDuration
 const FLOAT_MS = 7200;           // a new leaf floats up for 7.2 to 8.4 seconds (slower than the 2D flight)
 const NAME_FLIP_MARGIN = 0.44;   // a name turns over only when its leaf is 25 degrees past upright (no flicker)
+const SHOWCASE_MS = 12000;       // a new leaf shows at the bottom middle of the screen this long before floating up
+const APPEAR_MS = 900;           // how long it takes to fade in there
+const STAGE_CLEAR_MS = 3000;     // the next new leaf appears there this long after the one before starts floating up
 const TINT_BOOST = 2.3;          // the leaf picture is mid grey: this brings the chosen colour back to strength
 const NEON = new T.Color(0x39ff14);
 const MIN_LIGHTNESS = 0.38;      // a leaf colour is shown at least this light (HSL), so it stands out on the canopy
@@ -337,6 +341,7 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
       for (const leaf of leaves.values()) removeLeaf(leaf);
       leaves.clear();
       placed.clear();
+      stageFreeAt = 0;
       refresh();
     } else if (JSON.stringify(settings.tree2d) !== before) refresh(); // the 2D leaf count changed
   });
@@ -346,6 +351,7 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
     mode = { live: live !== false, year: live === false ? year : null };
     initialised = !mode.live; // a reviewed year shows its leaves at once, without flights
     known.clear();
+    stageFreeAt = 0;
     for (const leaf of leaves.values()) removeLeaf(leaf);
     leaves.clear();
     refresh();
@@ -699,78 +705,122 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
     return fadeIn * fadeOut * pulse;
   }
 
-  // ---------- floating in (as the 2D landing flight) ----------
+  // ---------- showing at the bottom middle, then floating in (as the 2D landing flight) ----------
 
-  // A new leaf appears at the bottom middle of the screen at twice its size and floats up to its spot like
-  // a falling leaf in reverse: it swings gently from side to side with a steady rhythm, rocking like a
-  // cradle (the end on the outside of each swing lifts, as a pendulum's), while it rises and shrinks. The
-  // swings die away as it arrives, and it settles exactly where it then rests, swaying with the tree.
-  // It floats at the depth of its spot, so it moves across the screen as the 2D leaf does, and it keeps
-  // the angle it will rest at, facing the viewer, so its name reads all the way and nothing turns over.
+  // A new leaf appears at the bottom middle of the screen at twice its size and stays there for
+  // SHOWCASE_MS (12 seconds), drifting gently in place with its name level, so the visitor can find it and
+  // read it. Then it floats up to its spot like a falling leaf in reverse: it swings gently from side to
+  // side with a steady rhythm, rocking like a cradle (the end on the outside of each swing lifts, as a
+  // pendulum's), while it rises, shrinks and turns from level to the angle it will rest at. The swings die
+  // away as it arrives, and it settles exactly where it then rests, swaying with the tree. It shows and
+  // floats at the depth of its spot, so it moves across the screen as the 2D leaf does, and it stays at the
+  // bottom middle of the screen even if the view is turned meanwhile. Several new leaves take turns there:
+  // each appears once the one before has started floating up and cleared the spot.
+  let stageFreeAt = 0; // when the bottom middle is next free for a new leaf
+
   function startFlight(leaf, order) {
     const random = seededRandom(`${leaf.key}|flight`);
+    const appearAt = Math.max(now() + order * 250, stageFreeAt);
+    stageFreeAt = appearAt + SHOWCASE_MS + STAGE_CLEAR_MS;
+    // Level means its midrib across the screen, pointing right or left, whichever is nearer its resting angle.
     camera.updateMatrixWorld();
-    const forward = camera.getWorldDirection(new T.Vector3());
-    const right = new T.Vector3().setFromMatrixColumn(camera.matrixWorld, 0).normalize();
-    const up = new T.Vector3().setFromMatrixColumn(camera.matrixWorld, 1).normalize();
-    const depth = Math.max(1, leaf.shown.position.clone().sub(camera.position).dot(forward));
-    const halfHeight = depth * Math.tan(T.MathUtils.degToRad(camera.fov / 2));
-    // The bottom middle of the screen, with the twice-size leaf fully on screen.
-    const startHalf = leaf.scale * MODEL_SIZE; // half of twice its size
-    const startY = Math.min(-0.35, -1 + startHalf / halfHeight + 0.05);
-    const start = camera.position.clone().addScaledVector(forward, depth).addScaledVector(up, startY * halfHeight);
-    // Its resting angle as the viewer sees it (the midrib across the view), and which side faces the viewer.
     const midrib = new T.Vector3(1, 0, 0).applyQuaternion(leaf.shown.quaternion);
-    midrib.addScaledVector(forward, -midrib.dot(forward));
-    if (midrib.lengthSq() < 1e-4) midrib.copy(right);
-    midrib.normalize();
-    const restFace = new T.Vector3(0, 1, 0).applyQuaternion(leaf.shown.quaternion);
-    const face = forward.clone().multiplyScalar(restFace.dot(forward) > 0 ? 1 : -1); // towards the viewer, as a rule
+    const right = new T.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
     leaf.flight = {
-      start, forward, right, up, midrib, face,
+      appearAt,
+      levelSign: midrib.dot(right) >= 0 ? 1 : -1,
       duration: FLOAT_MS + random() * 1200,
-      delay: Math.min(order * 1100, 4400) + random() * 120, // several new leaves float up one after another
-      began: now(),
       swings: 4 + random() * 1.2,                       // side-to-side swings on the way up
       side: random() > 0.5 ? 1 : -1,                    // which way the first swing goes
-      amplitude: halfHeight * camera.aspect * (0.22 + random() * 0.08),
+      reach: 0.22 + random() * 0.08,                    // how far the swings go, of half the view's width
       rock: 0.24 + random() * 0.1,                      // how far it rocks at the end of a swing (radians)
       flutter: 0.25 + random() * 0.15,                  // how far it tips about its midrib (radians)
+      drift: random() * Math.PI * 2,                    // where its gentle drift at the bottom middle starts
     };
     leaf.state = 'landing';
   }
 
   const restPosition = new T.Vector3(), restPose = new T.Quaternion(), floatPose = new T.Quaternion();
   const axisX = new T.Vector3(), axisZ = new T.Vector3(), basis = new T.Matrix4(), tipping = new T.Quaternion();
+  const viewForward = new T.Vector3(), viewRight = new T.Vector3(), viewUp = new T.Vector3();
+  const start = new T.Vector3(), restMidrib = new T.Vector3(), level = new T.Vector3(), face = new T.Vector3();
+  const restFace = new T.Vector3(), turnSense = new T.Vector3();
   const MIDRIB_AXIS = new T.Vector3(1, 0, 0);
+
+  // The leaf facing the viewer, its midrib along the given direction, tipped about its midrib.
+  function facingPose(midrib, tip) {
+    axisZ.crossVectors(midrib, face);
+    basis.makeBasis(midrib, face, axisZ);
+    return floatPose.setFromRotationMatrix(basis).multiply(tipping.setFromAxisAngle(MIDRIB_AXIS, tip));
+  }
+
   function placeFlight(leaf, time, elapsed) {
     const f = leaf.flight;
-    const t = Math.min(1, Math.max(0, (time - f.began - f.delay) / f.duration));
     // Where it would rest right now, swaying with the tree, so the float ends exactly there.
     placeAtRest(leaf, elapsed);
     restPosition.copy(leaf.mesh.position);
     restPose.copy(leaf.mesh.quaternion);
 
+    // The view as it is now: the bottom middle of the screen at the depth of the leaf's spot, with the
+    // twice-size leaf fully on screen.
+    camera.updateMatrixWorld();
+    camera.getWorldDirection(viewForward);
+    viewRight.setFromMatrixColumn(camera.matrixWorld, 0).normalize();
+    viewUp.setFromMatrixColumn(camera.matrixWorld, 1).normalize();
+    const depth = Math.max(1, start.subVectors(restPosition, camera.position).dot(viewForward));
+    const halfHeight = depth * Math.tan(T.MathUtils.degToRad(camera.fov / 2));
+    const startHalf = leaf.scale * MODEL_SIZE; // half of twice its size
+    const startY = Math.min(-0.35, -1 + startHalf / halfHeight + 0.05);
+    start.copy(camera.position).addScaledVector(viewForward, depth).addScaledVector(viewUp, startY * halfHeight);
+    // Its resting angle as the viewer sees it, level, and the side of it that faces the viewer.
+    restMidrib.set(1, 0, 0).applyQuaternion(restPose);
+    restMidrib.addScaledVector(viewForward, -restMidrib.dot(viewForward));
+    if (restMidrib.lengthSq() < 1e-4) restMidrib.copy(viewRight);
+    restMidrib.normalize();
+    level.copy(viewRight).multiplyScalar(f.levelSign);
+    restFace.set(0, 1, 0).applyQuaternion(restPose);
+    face.copy(viewForward).multiplyScalar(restFace.dot(viewForward) > 0 ? 1 : -1); // towards the viewer, as a rule
+    const toRest = Math.atan2(turnSense.crossVectors(level, restMidrib).dot(viewForward), level.dot(restMidrib));
+
+    const since = time - f.appearAt;
+    if (since < SHOWCASE_MS) {
+      // At the bottom middle: fading in as it rises a little into place, then drifting gently, name level.
+      // The drift calms to nothing before it floats up, so the float starts from exactly here.
+      const shown = Math.max(0, since);
+      const appear = smoothstep(0, APPEAR_MS, shown);
+      const idle = smoothstep(0, 1200, shown) * (1 - smoothstep(SHOWCASE_MS - 1200, SHOWCASE_MS, shown));
+      const seconds = shown / 1000;
+      leaf.mesh.position.copy(start)
+        .addScaledVector(viewUp, startHalf * (0.07 * Math.sin(seconds * 1.9 + f.drift) * idle - 0.25 * (1 - appear)))
+        .addScaledVector(viewRight, startHalf * 0.05 * Math.sin(seconds * 1.1 + f.drift * 2) * idle);
+      axisX.copy(level).applyAxisAngle(viewForward, 0.07 * Math.sin(seconds * 1.5 + f.drift) * idle);
+      leaf.mesh.quaternion.copy(facingPose(axisX, 0.16 * Math.sin(seconds * 2.3 + f.drift) * idle));
+      leaf.mesh.scale.setScalar(leaf.scale * 2 * (0.88 + 0.12 * appear));
+      leaf.mesh.scale.x *= sideSign(leaf);
+      leaf.material.opacity = since < 0 ? 0 : appear; // waiting its turn: not shown yet
+      return;
+    }
+
+    const t = Math.min(1, (since - SHOWCASE_MS) / f.duration);
     const s = flightEase(t);            // the way up: gentle start, long soft arrival
     const swing = Math.PI * f.swings * t; // a steady rhythm, as a falling leaf's
     const calm = (1 - s) ** 1.3;          // the swings die away as it arrives
     const sway = Math.sin(swing) * calm;
-    leaf.mesh.position.lerpVectors(f.start, restPosition, s)
-      .addScaledVector(f.right, f.side * f.amplitude * sway)
-      .addScaledVector(f.up, 0.16 * f.amplitude * Math.sin(swing) ** 2 * calm); // lifting at each end
+    const amplitude = halfHeight * camera.aspect * f.reach;
+    leaf.mesh.position.lerpVectors(start, restPosition, s)
+      .addScaledVector(viewRight, f.side * amplitude * sway)
+      .addScaledVector(viewUp, 0.16 * amplitude * Math.sin(swing) ** 2 * calm); // lifting at each end
 
-    // Facing the viewer at its resting angle, rocking with the swing and tipping about its midrib.
-    axisX.copy(f.midrib).applyAxisAngle(f.forward, -f.side * f.rock * sway);
-    axisZ.crossVectors(axisX, f.face);
-    basis.makeBasis(axisX, f.face, axisZ);
-    floatPose.setFromRotationMatrix(basis);
-    floatPose.multiply(tipping.setFromAxisAngle(MIDRIB_AXIS, f.flutter * Math.sin(swing * 2 + 0.6) * calm));
+    // Facing the viewer, turning from level to its resting angle, rocking with the swing and tipping about
+    // its midrib; then settling into exactly its resting pose.
+    axisX.copy(level).applyAxisAngle(viewForward, toRest * smoothstep(0.05, 0.7, s) - f.side * f.rock * sway);
+    facingPose(axisX, f.flutter * Math.sin(swing * 2) * calm);
     leaf.mesh.quaternion.slerpQuaternions(floatPose, restPose, smoothstep(0.55, 1, s));
 
     // Twice its size at the start, shrinking smoothly to its size on the tree.
     leaf.mesh.scale.setScalar(leaf.scale * (1 + (1 - s) ** 1.4));
     leaf.mesh.scale.x *= sideSign(leaf);
-    leaf.material.opacity = smoothstep(0, 0.05, t) * T.MathUtils.lerp(1, facingAmount(leaf), smoothstep(0.8, 1, s));
+    leaf.material.opacity = T.MathUtils.lerp(1, facingAmount(leaf), smoothstep(0.8, 1, s));
     if (t >= 1) {
       leaf.state = 'resting';
       leaf.restingSince = time;

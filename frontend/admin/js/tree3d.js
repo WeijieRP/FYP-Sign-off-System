@@ -85,6 +85,7 @@ const TREE3D_AREA_FEED = 'https://api-open.data.gov.sg/v2/real-time/api/two-hr-f
 function showTreeSettingsForMode(mode) {
     const page = document.getElementById('tree-adjustment-page');
     if (page) page.classList.toggle('tree-mode-3d', mode === '3d');
+    if (mode === '3d' && typeof loadTree3dStage === 'function') loadTree3dStage(); // the stage may have changed in the 2D panel
 }
 
 function tree3dField(id) {
@@ -387,7 +388,106 @@ async function triggerTree3dAction(action) {
     }
 }
 
+// ---------- 3D Tree Growth Stage ----------
+// The same growth stage as the 2D tree (treeParameters.treeStage and its leafThresholds), set the same way:
+// by hand, or from the leaf count and the thresholds (getCurrentLeafCount and getStageFromLeafCount in
+// tree.js). The /3dTree screen shows the Ketapang Stage 0 to 4 model for it (frontend/3dTree/tree-stage.js).
+const TREE3D_STAGE_NAMES = ['Bare Trunk', 'Early Growth', 'Young Canopy', 'Mature Canopy', 'Full Canopy'];
+
+function tree3dStageThresholds() {
+    const value = key => parseInt(tree3dField(`thresholdStage${key}`)?.value, 10) || 0;
+    return { stage1: value(1), stage2: value(2), stage3: value(3), stage4: value(4) };
+}
+
+function tree3dStageIsAuto() {
+    return document.querySelector('input[name="tree3dStageMode"]:checked')?.value !== 'manual';
+}
+
+async function updateTree3dAutoStage() {
+    const countLabel = tree3dField('currentLeafCount');
+    const preview = tree3dField('autoStagePreview');
+    if (!countLabel || !preview) return null;
+    const leafCount = await getCurrentLeafCount();
+    const stage = getStageFromLeafCount(leafCount, tree3dStageThresholds());
+    countLabel.textContent = String(leafCount);
+    preview.textContent = `${stage} (${TREE3D_STAGE_NAMES[stage]})`;
+    if (tree3dStageIsAuto()) tree3dField('treeStage').value = String(stage);
+    return stage;
+}
+
+function updateTree3dStageMode() {
+    const select = tree3dField('treeStage');
+    const manual = tree3dField('manualStage');
+    if (!select || !manual) return;
+    const auto = tree3dStageIsAuto();
+    select.disabled = auto;
+    manual.style.opacity = auto ? '0.6' : '1';
+    if (auto) updateTree3dAutoStage();
+}
+
+// Shows a saved stage and thresholds in this panel and in the 2D tree's panel, so both always agree.
+function showTree3dStage(treeParameters) {
+    const raw = Number(treeParameters?.treeStage);
+    const stage = Number.isInteger(raw) ? Math.max(0, Math.min(4, raw)) : 0;
+    const thresholds = treeParameters?.leafThresholds || {};
+    for (const [select, prefix] of [[tree3dField('treeStage'), 'tree3d-thresholdStage'], [document.getElementById('param-treeStage'), 'threshold-stage']]) {
+        if (select) select.value = String(stage);
+        [1, 2, 3, 4].forEach(key => {
+            const input = document.getElementById(`${prefix}${key}`);
+            const saved = thresholds[`stage${key}`];
+            if (input && saved !== undefined && saved !== null) input.value = saved;
+        });
+    }
+    const status = tree3dField('stageStatus');
+    if (status) status.textContent = `Current: stage ${stage} (${TREE3D_STAGE_NAMES[stage]}).`;
+    const status2d = document.getElementById('tree-stage-status');
+    if (status2d) status2d.textContent = `Current: stage ${stage}. Shown on /tree after apply.`;
+    return stage;
+}
+
+async function loadTree3dStage() {
+    if (!tree3dField('treeStage')) return;
+    try {
+        const response = await fetch('/api/admin/parameters/treeParameters', { credentials: 'include' });
+        const data = await response.json();
+        if (!response.ok || !data.success) throw new Error(data.error || 'Failed to load the tree stage');
+        showTree3dStage(data.parameters);
+    } catch (error) {
+        console.error('Error loading the 3D tree stage:', error);
+        const status = tree3dField('stageStatus');
+        if (status) status.textContent = 'Unable to load the saved stage.';
+    }
+    updateTree3dStageMode();
+}
+
+async function saveTree3dStage() {
+    const status = tree3dField('stageStatus');
+    try {
+        const leafThresholds = tree3dStageThresholds();
+        const treeStage = tree3dStageIsAuto()
+            ? await updateTree3dAutoStage()
+            : Math.max(0, Math.min(4, Number(tree3dField('treeStage').value) || 0));
+        if (status) status.textContent = `Saving stage ${treeStage}...`;
+        const response = await fetch('/api/admin/parameters/treeParameters', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ treeStage, leafThresholds })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.success) throw new Error(data.error || 'Failed to save the tree stage');
+        showTree3dStage({ treeStage, leafThresholds });
+        if (status) status.textContent = `Saved: stage ${treeStage} (${TREE3D_STAGE_NAMES[treeStage]}). /3dTree shows it within about 5 seconds.`;
+        showNotification(`Tree growth stage set to stage ${treeStage}. The 3D screen changes within a few seconds.`, 'success');
+    } catch (error) {
+        console.error('Error saving the 3D tree stage:', error);
+        if (status) status.textContent = 'Failed to save the stage. Please try again.';
+        showNotification(error.message || 'Failed to save the tree stage.', 'error');
+    }
+}
+
 async function loadTree3dSettings() {
+    loadTree3dStage();
     if (!tree3dField('weatherSource')) return;
     try {
         const response = await fetch('/api/parameters');

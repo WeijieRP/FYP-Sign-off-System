@@ -14,6 +14,8 @@ import { createFallingLeaves } from './falling-leaves.js';
 import { refineSceneMaterials, drawingRatio, createFrameBudget } from './render-quality.js';
 import { createTreeView } from './tree-view.js';
 import { addFeedbackLeaves } from './feedback-leaves.js';
+import { startingStage, stageModelUrl, prepareStageTree, perchSeats, canopyDriftRoutes, normaliseStage } from './tree-stage.js';
+import { onTree3dSettings } from './tree3d-settings.js';
 
 // Edit these values for the installation.
 const config = {
@@ -90,9 +92,14 @@ async function start() {
     treeView.resize(w/h);
   }
   updateSize();
+  // The tree's growth stage, the same as the 2D tree's (tree-stage.js).
+  const {stage,fixed}=await startingStage();
   const assets = await loadEnvironment((count,total)=>{
-    loadingDetail.textContent = `Loading Stage 4 and the river assets · ${count}/${total}`;
-  },lowQuality);
+    loadingDetail.textContent = `Loading Stage ${stage} and the river assets · ${count}/${total}`;
+  },lowQuality,stageModelUrl(stage));
+  const shownStage=assets.tree.userData.stageFallback?4:stage;
+  const stageLabel=document.getElementById('tree-stage-label');
+  if (stageLabel) stageLabel.textContent=`STAGE ${shownStage}`;
   loadingDetail.textContent = 'Lighting the river valley';
   clock.soil.value=assets.layout.soilY-.035;
   clock.swimmers={value:assets.layout.duckRoutes.map(()=>new T.Vector4())};
@@ -103,13 +110,20 @@ async function start() {
   }
   const water=addLandscape(scene,assets,clock,lowQuality);
   const updateRiverLevel=installRiverLevel(clock.rain,water.setRise);
-  const leaves=createFallingLeaves(scene,assets.driftLeaves,assets.leafDrifts,seeded(7741),clock.waterRise,(position,time)=>{
+  const tree=addMatteTree(scene,prepareStageTree(assets.tree,shownStage),clock,shownStage);
+  const treeBounds=new T.Box3().setFromObject(tree);
+  if (treeBounds.isEmpty()) throw new Error(`The Stage ${shownStage} tree has no renderable geometry.`);
+  // The wind drops leaves from this stage's canopy; a bare trunk (stage 0) drops none.
+  const driftRoutes=canopyDriftRoutes(tree,assets.leafDrifts,shownStage);
+  const leaves=createFallingLeaves(scene,assets.driftLeaves,driftRoutes,seeded(7741),clock.waterRise,(position,time)=>{
     water.splash(position,time);
     if (ambient.enabled) ambient.leafSplash(soundPan(position),camera.position.distanceTo(position));
   });
-  const tree=addMatteTree(scene,assets.tree,clock);
-  const treeBounds=new T.Box3().setFromObject(tree);
-  if (treeBounds.isEmpty()) throw new Error('The Stage 4 tree has no renderable geometry.');
+  const dropLeaves=time=>{ if (driftRoutes.length) leaves.gust(time); };
+  // A different stage saved in the admin: reload into it (unless ?stage= fixes the stage).
+  if (!fixed) onTree3dSettings(next=>{
+    if (next?.tree2d && normaliseStage(next.tree2d.treeStage)!==stage) location.reload();
+  });
   // One leaf per feedback on the tree, with the 2D tree's leaf animations (feedback-leaves.js).
   const feedbackLeaves=addFeedbackLeaves({scene,tree,clock,camera,renderer});
 
@@ -119,7 +133,7 @@ async function start() {
   updateHabitat(0);
   updateForestWildlife(0);
   const updateWildlife=createSwimmers(scene,assets,clock,lowQuality);
-  const seats=[[-4.822,4.776,1.032],[4.414,4.893,.617],[-4.057,7.364,.104],[4.227,7.372,-.568]];
+  const seats=perchSeats(tree,[[-4.822,4.776,1.032],[4.414,4.893,.617],[-4.057,7.364,.104],[4.227,7.372,-.568]],shownStage);
   const updateBirds=createBirds(scene,assets.hawk,treeBounds,clock.soil.value,seats,lowQuality);
   updateWildlife(0);
   updateBirds(0);
@@ -160,7 +174,7 @@ async function start() {
   let manualGust = -Infinity;
   buttons.gust.addEventListener('click',() => {
     manualGust = clock.time.value;
-    leaves.gust(manualGust);
+    dropLeaves(manualGust);
     message.textContent = 'Wind preview started.';
   });
   buttons.fullscreen.disabled = !document.fullscreenEnabled;
@@ -193,7 +207,7 @@ async function start() {
     const currentCycle=Math.floor(elapsed/config.gustIntervalSeconds);
     if (currentCycle>gustCycle) {
       gustCycle=currentCycle;
-      leaves.gust(elapsed);
+      dropLeaves(elapsed);
     }
     const scheduled = elapsed >= config.gustIntervalSeconds ? gustStrength(cycle) : 0;
     const gust=Math.max(scheduled,gustStrength(elapsed-manualGust));
