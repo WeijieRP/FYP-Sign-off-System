@@ -593,23 +593,72 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
 
   // Whether a leaf of this size at this point is fully on screen and not under the title box.
   const onScreen = new T.Vector3();
-  function seenOnScreen(position, size) {
+  // Where a leaf of this size at this point is on the canvas: its centre and half its size, in pixels.
+  function onCanvas(position, size) {
     camera.updateMatrixWorld();
     onScreen.copy(position).project(camera);
-    if (onScreen.z > 1) return false;
     const width = renderer.domElement.clientWidth || window.innerWidth;
     const height = renderer.domElement.clientHeight || window.innerHeight;
     const depth = position.distanceTo(camera.position);
-    const halfPx = (size / 2) / (2 * depth * Math.tan(T.MathUtils.degToRad(camera.fov / 2))) * height;
-    const x = (onScreen.x + 1) / 2 * width, y = (1 - onScreen.y) / 2 * height;
-    if (x < halfPx || x > width - halfPx || y < halfPx || y > height - halfPx) return false;
+    const half = (size / 2) / (2 * depth * Math.tan(T.MathUtils.degToRad(camera.fov / 2))) * height;
+    return { x: (onScreen.x + 1) / 2 * width, y: (1 - onScreen.y) / 2 * height, half, width, height, behind: onScreen.z > 1 };
+  }
+
+  // The title box on the canvas, with a margin: no leaf sits there, wherever the admin puts the title box
+  // (top or bottom, left, centre or right) or however big it is. Null when it is hidden.
+  function titleArea() {
     const title = document.querySelector('.masthead');
     const box = title?.getBoundingClientRect();
-    if (!box || !box.width || getComputedStyle(title).visibility === 'hidden') return true;
+    if (!box || !box.width || !box.height) return null;
+    const style = getComputedStyle(title);
+    if (style.visibility === 'hidden' || style.display === 'none') return null;
     const canvasBox = renderer.domElement.getBoundingClientRect();
-    const left = box.left - canvasBox.left, top = box.top - canvasBox.top;
-    return x + halfPx < left || x - halfPx > left + box.width || y + halfPx < top || y - halfPx > top + box.height;
+    const margin = 12;
+    return {
+      left: box.left - canvasBox.left - margin, top: box.top - canvasBox.top - margin,
+      right: box.right - canvasBox.left + margin, bottom: box.bottom - canvasBox.top + margin,
+    };
   }
+
+  function touchesTitle(spot, area = titleArea()) {
+    return Boolean(area) && spot.x + spot.half > area.left && spot.x - spot.half < area.right
+      && spot.y + spot.half > area.top && spot.y - spot.half < area.bottom;
+  }
+
+  function seenOnScreen(position, size) {
+    const spot = onCanvas(position, size);
+    if (spot.behind) return false;
+    if (spot.x < spot.half || spot.x > spot.width - spot.half || spot.y < spot.half || spot.y > spot.height - spot.half) return false;
+    return !touchesTitle(spot);
+  }
+
+  // When the title box moves or changes size (the admin's Title Box settings, or the screen size), a
+  // resting leaf it now covers moves to a free spot clear of it, fading in there. Checked only when the
+  // title box itself changes, so a leaf the viewer turns under the title box by dragging stays put.
+  let titleKey = null;
+  function keepClearOfTitle() {
+    if (!model) return;
+    const area = titleArea();
+    const key = area ? [area.left, area.top, area.right, area.bottom].map(Math.round).join(',') : 'none';
+    if (key === titleKey) return;
+    titleKey = key;
+    for (const leaf of [...leaves.values()]) {
+      if (leaf.state !== 'resting') continue;
+      if (touchesTitle(onCanvas(leaf.shown.position, leaf.scale * MODEL_SIZE), area)) relocate(leaf);
+    }
+  }
+  function relocate(leaf) {
+    const { key, visitor } = leaf;
+    removeLeaf(leaf);
+    leaves.delete(key);
+    placed.delete(key);
+    const moved = createLeaf(key, visitor);
+    if (!moved) return;
+    moved.appear = 0; // fades in at its new spot
+    leaves.set(key, moved);
+  }
+  document.addEventListener('esg-tree-title', () => requestAnimationFrame(keepClearOfTitle));
+  window.addEventListener('resize', () => window.setTimeout(keepClearOfTitle, 400));
 
   function createLeaf(key, visitor) {
     const spot = spotFor(key);
@@ -816,7 +865,18 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
     const depth = Math.max(1, start.subVectors(restPosition, camera.position).dot(viewForward));
     const halfHeight = depth * Math.tan(T.MathUtils.degToRad(camera.fov / 2));
     const startHalf = leaf.scale * MODEL_SIZE; // half of twice its size
-    const startY = Math.min(-0.35, -1 + startHalf / halfHeight + 0.05);
+    let startY = Math.min(-0.35, -1 + startHalf / halfHeight + 0.05);
+    // With the title box at the bottom of the screen, the new leaf shows just above it, not under it.
+    const area = titleArea();
+    if (area) {
+      const canvasHeight = renderer.domElement.clientHeight || window.innerHeight;
+      const canvasWidth = renderer.domElement.clientWidth || window.innerWidth;
+      const halfPx = (startHalf / halfHeight) * (canvasHeight / 2);
+      const yPx = ((1 - startY) / 2) * canvasHeight;
+      if (canvasWidth / 2 + halfPx > area.left && canvasWidth / 2 - halfPx < area.right && yPx + halfPx > area.top && yPx - halfPx < area.bottom) {
+        startY = 1 - (2 * (area.top - halfPx - 8)) / canvasHeight;
+      }
+    }
     start.copy(camera.position).addScaledVector(viewForward, depth).addScaledVector(viewUp, startY * halfHeight);
     // Its resting angle as the viewer sees it, level, and the side of it that faces the viewer.
     restMidrib.set(1, 0, 0).applyQuaternion(restPose);
@@ -1069,6 +1129,10 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
         leaf.material.opacity = facingAmount(leaf);
       }
       leaf.material.opacity *= within(settings.leafOpacity, 1, 0.1, 1); // the admin's Leaf Opacity (2D: leafOpacity)
+      if (leaf.appear !== undefined && leaf.appear < 1) { // moved clear of the title box: fades in at its new spot
+        leaf.appear = Math.min(1, leaf.appear + dt / 0.8);
+        leaf.material.opacity *= smoothstep(0, 1, leaf.appear);
+      }
       // The leaf whose details card is open grows a little, easing in and out.
       leaf.focus = (leaf.focus || 0) + ((leaf === selectedLeaf ? 1 : 0) - (leaf.focus || 0)) * Math.min(1, dt * 6);
       if (leaf.focus > 0.001) leaf.mesh.scale.multiplyScalar(1 + 0.15 * leaf.focus);

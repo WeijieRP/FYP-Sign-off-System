@@ -275,6 +275,7 @@ class TreeManager {
         this.renderedLeafKeys = new Set();
         this.leafPositions = new Map();
         this.leafLayoutKey = '';
+        this.titleKeepOut = null; // the title box's area, kept clear of leaves (getTitleKeepOut)
         this.placedLeafCircles = [];
         this.leafSpacingRadius = 0.5;
         this.recentLandingWindowMs = 2 * 60 * 1000;
@@ -1421,6 +1422,12 @@ class TreeManager {
             this.leafPositions.clear();
             this.leafLayoutKey = layoutKey;
         }
+        // Leaves stay clear of the title box: a leaf the title box now covers (the admin moved or resized
+        // it) gets a new spot, and new leaves are never placed under it (leafTouchesTitle).
+        this.titleKeepOut = this.getTitleKeepOut();
+        for (const [key, spot] of this.leafPositions) {
+            if (this.leafTouchesTitle(spot.x, spot.y, spot.size)) this.leafPositions.delete(key);
+        }
         // Leaves that already have a spot are registered first, so a new leaf avoids all of them.
         this.placedLeafCircles = leafCycle.visibleVisitors
             .map((visitor, index) => this.leafPositions.get(this.getLeafKey(visitor, index)))
@@ -1690,6 +1697,9 @@ class TreeManager {
             const rx = random() * displayW;
             const ry = random() * displayH;
 
+            // Never under the title box.
+            if (this.leafTouchesTitle(left + rx - leafSize / 2, top + ry - leafSize / 2, leafSize)) continue;
+
             // Cheap overlap test first; only read mask pixels for a spot that beats the best so far.
             const overlap = this.leafOverlapAt(left + rx, top + ry, radius);
             if (best && overlap >= best.overlap) continue;
@@ -1713,6 +1723,31 @@ class TreeManager {
 
         // A full canopy has no clear spot left; the least crowded one is used instead.
         return best ? { x: best.x, y: best.y } : null;
+    }
+
+    // The title box's area on the leaves' layer, with a margin: no leaf sits there, wherever the admin puts
+    // the title box (Tree Title Box position) or however big it is. Null when the title box is hidden.
+    getTitleKeepOut() {
+        const title = this.treeTitleBox;
+        if (!title || !this.leavesContainer) return null;
+        const style = getComputedStyle(title);
+        if (style.display === 'none' || style.visibility === 'hidden') return null;
+        const rect = title.getBoundingClientRect();
+        if (!rect.width || !rect.height) return null;
+        const container = this.leavesContainer.getBoundingClientRect();
+        const margin = 14;
+        return {
+            left: rect.left - container.left - margin,
+            top: rect.top - container.top - margin,
+            right: rect.right - container.left + margin,
+            bottom: rect.bottom - container.top + margin
+        };
+    }
+
+    // Whether a leaf with its top-left corner at (x, y) on the leaves' layer would touch the title box.
+    leafTouchesTitle(x, y, leafSize, keepOut = this.titleKeepOut) {
+        if (!keepOut) return false;
+        return x < keepOut.right && x + leafSize > keepOut.left && y < keepOut.bottom && y + leafSize > keepOut.top;
     }
 
     // How deep a leaf centred at (cx, cy) would overlap the leaves already placed; 0 means clear.
@@ -1996,7 +2031,14 @@ class TreeManager {
         // Exactly the bottom middle when it waits there; a little to either side when it flies at once.
         const startJitter = (random() - 0.5) * 0.2;
         const startCenterX = width * (0.5 + (hold > 0 ? 0 : startJitter));
-        const startCenterY = height - halfSizeAt(startScale) - (height * 0.04);
+        let startCenterY = height - halfSizeAt(startScale) - (height * 0.04);
+        // With the title box at the bottom of the screen, the new leaf shows just above it, not under it.
+        const keepOut = this.getTitleKeepOut();
+        const startHalf = halfSizeAt(startScale);
+        if (keepOut && startCenterX + startHalf > keepOut.left && startCenterX - startHalf < keepOut.right
+            && startCenterY + startHalf > keepOut.top && startCenterY - startHalf < keepOut.bottom) {
+            startCenterY = Math.max(startHalf, keepOut.top - startHalf - 8);
+        }
         const swings = 2.2 + random() * 1.3;
         const amplitude = Math.min(Math.max(width * 0.16, 180), 460) * (0.75 + random() * 0.5);
         const bank = 12 + random() * 12;
@@ -2487,6 +2529,7 @@ class TreeManager {
             const x = (random() * 2 - 1) * a;
             const y = (random() * 2 - 1) * b;
             if ((x * x) / (a * a) + (y * y) / (b * b) > 1) continue;
+            if (this.leafTouchesTitle(cx + x - leafSize / 2, cy + y - leafSize / 2, leafSize)) continue; // never under the title box
 
             const overlap = this.leafOverlapAt(cx + x, cy + y, radius);
             if (!best || overlap < best.overlap) {
