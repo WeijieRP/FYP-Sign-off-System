@@ -98,6 +98,22 @@
 
 // Leaf name font size at Leaf Display Scale 1; the same for every leaf.
 const LEAF_GLOW_FADE_MS = 900; // how long a just-landed leaf takes to fade its neon glow in
+const LANDING_STAGE_CLEAR_MS = 2500; // the next new leaf appears at the bottom middle this long after the one before takes off
+
+// The landing flight's easing, cubic-bezier(0.4, 0, 0.3, 1): a slow start and a long, gentle arrival.
+// Worked into the flight's keyframes (planLeafLandingFlight), so time at the bottom middle can come first.
+function flightEase(time) {
+    const x1 = 0.4, y1 = 0, x2 = 0.3, y2 = 1;
+    const bezier = (a, b, s) => (3 * a * s * (1 - s) ** 2) + (3 * b * s * s * (1 - s)) + (s ** 3);
+    let s = time;
+    for (let i = 0; i < 8; i += 1) {
+        const x = bezier(x1, x2, s) - time;
+        const slope = (3 * x1 * (1 - s) ** 2) + (6 * (x2 - x1) * s * (1 - s)) + (3 * (1 - x2) * s * s);
+        if (Math.abs(slope) < 1e-6) break;
+        s = Math.min(1, Math.max(0, s - (x / slope)));
+    }
+    return bezier(y1, y2, s);
+}
 const LEAF_NAME_BASE_FONT_PX = 9;
 
 // How wide a name box may be (% of the leaf box) at a given box height (%) and still stay on the
@@ -250,6 +266,10 @@ class TreeManager {
         this.pendingLandingLeafKeys = new Set();
         this.landingCleanupTimers = new Map();
         this.landingFlights = new Map();
+        // A new feedback's leaf first shows at the bottom middle for this long, then flies to the tree
+        // (treeParameters.leafShowcaseSeconds, "Time at the bottom middle"); new leaves take turns there.
+        this.leafShowcaseMs = 12000;
+        this.landingStageFreeAt = 0;
         this.leafGlowEpochs = new Map(); // leaf key -> when its glow pulse starts (animationClock() time)
         this.renderedLeafKeys = new Set();
         this.leafPositions = new Map();
@@ -441,6 +461,10 @@ class TreeManager {
             this.leafAnimationDuration = Number(tree.leafAnimationDuration) || this.leafAnimationDuration;
             this.leafFallThreshold = Number(tree.leafFallThreshold) || this.leafFallThreshold;
             this.leafFallDuration = Number(tree.leafFallDuration) || this.leafFallDuration;
+            const showcaseSeconds = Number(tree.leafShowcaseSeconds);
+            if (tree.leafShowcaseSeconds !== undefined && tree.leafShowcaseSeconds !== '' && Number.isFinite(showcaseSeconds)) {
+                this.leafShowcaseMs = Math.min(30, Math.max(0, showcaseSeconds)) * 1000;
+            }
             this.treeStage = this.normalizeTreeStage(tree.treeStage);
             this.showTitleBox = tree.showTitleBox !== false;
             this.activeCampaign = campaign.enabled === true ? campaign : null;
@@ -1899,19 +1923,30 @@ class TreeManager {
         if (!isLanding) this.playLeafGlowFadeIn(leaf, leafKey);
     }
 
-    // Plans the flight of a new leaf from the bottom of the wall to its spot on the canopy.
-    // The leaf starts fully on screen and weaves left and right in a zigzag that narrows as it
-    // rises, leaning into each turn. The path is sampled by distance travelled and played with
-    // one easing over the whole flight, so the speed changes smoothly from start to landing.
+    // Plans the arrival of a new leaf. It first appears at the bottom middle of the wall at twice its
+    // size and stays there for "Time at the bottom middle" (leafShowcaseMs, 12 seconds by default),
+    // drifting gently so the visitor can find it; then it flies to its spot on the canopy. Several new
+    // leaves take turns at the bottom middle: each appears once the one before has flown clear. The
+    // flight starts fully on screen and weaves left and right in a zigzag that narrows as it rises,
+    // leaning into each turn. The path is sampled by distance travelled and played with one easing over
+    // the whole flight, so the speed changes smoothly from start to landing. (The demo page's landing
+    // flies at once.)
     planLeafLandingFlight(position, leafSize, random, index, visitor) {
         const windDirection = random() > 0.5 ? 1 : -1;
         const isDemo = visitor?.isDemoLanding === true;
         const duration = isDemo
             ? Math.round(6600 + random() * 500)
             : Math.round(5600 + random() * 900);
-        const delay = isDemo
+        const hold = isDemo ? 0 : Math.max(0, Number(this.leafShowcaseMs) || 0);
+        let delay = isDemo
             ? 80
             : Math.min(index * 70 + Math.round(random() * 120), 640);
+        if (hold > 0) {
+            // Waits its turn at the bottom middle.
+            const now = this.animationClock();
+            delay = Math.max(delay, Math.round((this.landingStageFreeAt || 0) - now));
+            this.landingStageFreeAt = now + delay + hold + LANDING_STAGE_CLEAR_MS;
+        }
         const containerRect = this.leavesContainer?.getBoundingClientRect();
         const width = containerRect?.width || window.innerWidth || 1920;
         const height = containerRect?.height || window.innerHeight || 1080;
@@ -1921,7 +1956,9 @@ class TreeManager {
         // Every new leaf rises from the bottom middle at twice its size and shrinks to its real size on the tree.
         const startScale = 2;
         const halfSizeAt = (scale) => ((leafSize * scale) / 2) + 16;
-        const startCenterX = width * (0.5 + ((random() - 0.5) * 0.2));
+        // Exactly the bottom middle when it waits there; a little to either side when it flies at once.
+        const startJitter = (random() - 0.5) * 0.2;
+        const startCenterX = width * (0.5 + (hold > 0 ? 0 : startJitter));
         const startCenterY = height - halfSizeAt(startScale) - (height * 0.04);
         const swings = 2.2 + random() * 1.3;
         const amplitude = Math.min(Math.max(width * 0.16, 180), 460) * (0.75 + random() * 0.5);
@@ -1972,31 +2009,65 @@ class TreeManager {
             return (i - 1 + (segment > 0 ? (target - arcLengths[i - 1]) / segment : 0)) / tableSize;
         };
 
-        const steps = 96;
+        // One animation plays the time at the bottom middle and then the flight, so the flight's easing
+        // (FLIGHT_EASING) is worked into its keyframes and the animation itself runs evenly.
+        const total = hold + duration;
+        const holdShare = hold / total;
         const keyframes = [];
 
+        if (hold > 0) {
+            // At the bottom middle: fading in as it rises a little into place, then drifting gently. The
+            // drift calms to nothing before take-off, so the flight starts from exactly here.
+            const [startX, startY] = pathAt(0);
+            const holdSteps = Math.max(24, Math.round(hold / 120));
+            const appearMs = Math.min(900, hold / 2);
+            const settleMs = Math.max(1, Math.min(1200, hold / 2));
+            const drift = random() * Math.PI * 2;
+            for (let step = 0; step < holdSteps; step += 1) {
+                const ms = (step / holdSteps) * hold;
+                const appear = smoothstep(0, appearMs, ms);
+                const idle = smoothstep(0, settleMs, ms) * (1 - smoothstep(hold - settleMs, hold, ms));
+                const seconds = ms / 1000;
+                const x = startX + (5 * Math.sin((seconds * 1.1) + (drift * 2)) * idle);
+                const y = startY + (7 * Math.sin((seconds * 1.9) + drift) * idle) + (18 * (1 - appear));
+                const rotate = 3 * Math.sin((seconds * 1.5) + drift) * idle;
+                keyframes.push({
+                    offset: Number((ms / total).toFixed(5)),
+                    opacity: Number((visibleOpacity * appear).toFixed(3)),
+                    transform: `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, 0px) rotate(${rotate.toFixed(2)}deg) rotateY(0deg) scale(${(startScale * (0.9 + (0.1 * appear))).toFixed(4)})`
+                });
+            }
+        }
+
+        const steps = 120;
         for (let step = 0; step <= steps; step += 1) {
-            const t = step / steps;
+            const time = step / steps;
+            const t = flightEase(time);
             const s = progressAtDistance(t);
             const [x, y] = pathAt(s);
             const envelope = (1 - s) ** 1.1;
-            // Lean into the direction of travel, and turn the leaf face as it swings.
-            const rotate = windDirection * bank * Math.cos(Math.PI * swings * s) * envelope;
+            // Lean into the direction of travel, and turn the leaf face as it swings. After the time at
+            // the bottom middle the leaf takes off level and leans in gently.
+            const lean = hold > 0 ? smoothstep(0, 0.06, t) : 1;
+            const rotate = windDirection * bank * Math.cos(Math.PI * swings * s) * envelope * lean;
             const rotateY = yaw * Math.sin(Math.PI * swings * s) * envelope;
-            const opacity = visibleOpacity * smoothstep(0, 0.05, t);
+            const opacity = hold > 0 ? visibleOpacity : visibleOpacity * smoothstep(0, 0.05, t);
 
             keyframes.push({
-                offset: t,
+                offset: Number((holdShare + (time * (1 - holdShare))).toFixed(5)),
                 opacity: Number(opacity.toFixed(3)),
                 transform: step === steps
                     ? 'translate3d(0px, 0px, 0px) rotate(0deg) rotateY(0deg) scale(1)'
                     : `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, 0px) rotate(${rotate.toFixed(2)}deg) rotateY(${rotateY.toFixed(2)}deg) scale(${scaleAt(s).toFixed(4)})`
             });
         }
+        keyframes[keyframes.length - 1].offset = 1;
 
         return {
             isDemo,
-            duration,
+            duration: total,         // the time at the bottom middle and the flight
+            flightDuration: duration,
+            hold,
             delay,
             keyframes,
             yaw: Math.round(yaw),
@@ -2014,7 +2085,8 @@ class TreeManager {
     // The leaf photo's flutter during a flight: a gentle sway that eases in after take-off and
     // calms to exactly nothing at the landing, so the leaf comes to rest without a snap.
     planLeafFlutterKeyframes(flight, flip) {
-        const steps = Math.max(60, Math.round(flight.duration / 33));
+        const flightDuration = flight.flightDuration ?? flight.duration; // the flight only, not the time before it
+        const steps = Math.max(60, Math.round(flightDuration / 33));
         const period = Math.max(600, flight.flutterDuration * 2);
         const swayY = Math.min(Math.abs(flight.yaw) * 0.45, 22) * Math.sign(flight.yaw || 1);
         const keyframes = [];
@@ -2022,7 +2094,7 @@ class TreeManager {
             const t = step / steps;
             const easeIn = Math.min(1, t / 0.08);
             const envelope = (easeIn * easeIn * (3 - (2 * easeIn))) * ((1 - t) ** 1.6);
-            const phase = (2 * Math.PI * t * flight.duration) / period;
+            const phase = (2 * Math.PI * t * flightDuration) / period;
             const rotateY = swayY * Math.sin(phase) * envelope;
             const rotateZ = 4 * Math.sin((phase * 0.5) + 0.8) * envelope;
             keyframes.push({
@@ -2110,13 +2182,17 @@ class TreeManager {
 
         leaf.classList.add('leaf-landing');
         leaf.classList.toggle('leaf-demo-landing', flight.isDemo);
-        leaf.style.setProperty('--leaf-land-duration', `${flight.duration}ms`);
-        leaf.style.setProperty('--leaf-land-delay', `${Math.round(flight.delay - elapsed)}ms`);
+        // The flight's shadow and flutter start at take-off, after the time at the bottom middle.
+        const flightDuration = flight.flightDuration ?? flight.duration;
+        const takeOff = flight.delay + (flight.hold || 0);
+        leaf.style.setProperty('--leaf-land-duration', `${flightDuration}ms`);
+        leaf.style.setProperty('--leaf-land-delay', `${Math.round(takeOff - elapsed)}ms`);
 
+        // Even timing: the flight's easing is already in its keyframes (planLeafLandingFlight).
         const animation = leaf.animate(flight.keyframes, {
             duration: flight.duration,
             delay: flight.delay,
-            easing: 'cubic-bezier(0.4, 0, 0.3, 1)',
+            easing: 'linear',
             fill: 'both'
         });
         // Pinned to the flight's own start on the page clock: a leaf rebuilt by a refresh mid-flight
@@ -2127,8 +2203,8 @@ class TreeManager {
         try {
             const flip = leaf.style.getPropertyValue('--leaf-image-scale-x').trim() === '-1' ? -1 : 1;
             flutter = leaf.animate(this.planLeafFlutterKeyframes(flight, flip), {
-                duration: flight.duration,
-                delay: flight.delay,
+                duration: flightDuration,
+                delay: takeOff,
                 easing: 'linear',
                 fill: 'both',
                 pseudoElement: '::before'
@@ -2428,8 +2504,10 @@ function refreshTreeFromServer() {
 function scheduleTreeRefresh() {
     window.clearTimeout(treeRefreshTimer);
     const configuredInterval = Math.max(5000, Number(treeManager?.leafRefreshInterval) || 30000);
-    const interval = treeManager && !treeManager.isReviewMode
-        ? Math.min(configuredInterval, treeManager.liveTreeRefreshInterval || 5000)
+    // The live tree checks every 5 seconds, from the first check after the page opens (before the tree
+    // has started, the first check used to wait the full 30 seconds, so a new leaf could take that long).
+    const interval = !treeManager || !treeManager.isReviewMode
+        ? Math.min(configuredInterval, treeManager?.liveTreeRefreshInterval || 5000)
         : configuredInterval;
     treeRefreshTimer = window.setTimeout(refreshTreeFromServer, interval);
 }

@@ -397,6 +397,7 @@ function populateParameterForm(config) {
     setInputValue('param-leafRefreshInterval', tree.leafRefreshInterval);
     setInputValue('param-leafOpacity', tree.leafOpacity);
     setInputValue('param-leafAnimationDuration', tree.leafAnimationDuration);
+    setInputValue('param-leafShowcaseSeconds', tree.leafShowcaseSeconds ?? 12);
     setInputValue('param-leafFallThreshold', tree.leafFallThreshold);
     setInputValue('param-leafFallDuration', tree.leafFallDuration);
     const normalizedTreeStage = Number.isInteger(Number(tree.treeStage))
@@ -596,6 +597,8 @@ function collectParameterForm() {
             leafRefreshInterval: getNumberValue('param-leafRefreshInterval', 30000),
             leafOpacity: getNumberValue('param-leafOpacity', 0.9),
             leafAnimationDuration: getNumberValue('param-leafAnimationDuration', 500),
+            // A new leaf's time at the bottom middle before it flies to the 2D tree (frontend/tree/tree.js).
+            leafShowcaseSeconds: Math.min(30, Math.max(0, getNumberValue('param-leafShowcaseSeconds', 12))),
             leafFallThreshold: getNumberValue('param-leafFallThreshold', 15),
             leafFallDuration: getNumberValue('param-leafFallDuration', 4200),
             treeStage: Math.max(0, Math.min(4, Number(getInputValue('param-treeStage')) || 0)),
