@@ -17,7 +17,7 @@ const DEFAULTS = {
   showWeatherPanel: true, showRiverPanel: true, showControlsBar: true, showYearReview: true,
   gustRequestedAt: '', sunsetRequestedAt: '',
   showFeedbackLeaves: true, leafNewColor: '#7cb342', leafOldColor: '#1f5f2e', leafSide: 'both', leafNewHours: 24,
-  vipLeafColor: '#d4af37', vipLeafScale: 1, vipGlow: true, leafScale: 1, maxLeaves: 15,
+  vipLeafColor: '#d4af37', vipLeafScale: 1, vipGlow: true, leafScale: 1, showLeafNames: true,
   titleBox: {
     showTitleBox: true, titleText: 'ESG Tree', subtitleText: DEFAULT_SUBTITLE,
     opacity: 0.54, blur: 18, radius: 20, position: 'auto', paddingX: 22, paddingY: 12,
@@ -237,6 +237,13 @@ async function refresh() {
     const data = await response.json();
     if (!response.ok || !data.success) return;
     latest = withDefaults(data.parameters?.tree3dParameters);
+    // The 3D tree shows the same leaves as the 2D tree (feedback-leaves.js): its "Maximum Visible Leaves"
+    // and growth stage come from the 2D tree's settings.
+    const tree2d = data.parameters?.treeParameters || {};
+    latest.tree2d = {
+      leafFallThreshold: Math.max(1, Number(tree2d.leafFallThreshold) || 15),
+      treeStage: Math.round(Number(tree2d.treeStage) || 0),
+    };
     applyTitleBox(latest.titleBox);
     applyPanels(latest);
     applyControls(latest);

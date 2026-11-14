@@ -57,11 +57,12 @@ test('an action time is stored as ISO time, and empty clears it', () => {
     assert.equal(normalizeTree3dParameters({ sunsetRequestedAt: '' }).sunsetRequestedAt, '');
 });
 
-test('3D leaf settings: colours, scale and the most leaves are checked', () => {
+test('3D leaf settings: colours and scale are checked; the leaf count is the 2D tree\'s', () => {
     const saved = normalizeTree3dParameters({ showFeedbackLeaves: false, leafNewColor: '#7CB342', leafOldColor: '#1f5f2e',
         leafNewHours: 12, leafScale: 1.5, maxLeaves: 20 });
+    // maxLeaves is no longer a 3D setting: the 3D tree shows as many leaves as the 2D tree.
     assert.deepEqual(saved, { showFeedbackLeaves: false, leafNewColor: '#7cb342', leafOldColor: '#1f5f2e',
-        leafNewHours: 12, leafScale: 1.5, maxLeaves: 20 });
+        leafNewHours: 12, leafScale: 1.5 });
     assert.throws(() => normalizeTree3dParameters({ leafNewColor: 'green' }), { statusCode: 400, message: /colour/ });
     // Greens only: light greens for new leaves, dark greens for older ones.
     assert.throws(() => normalizeTree3dParameters({ leafNewColor: '#e07b24' }), { statusCode: 400, message: /greens/ });
@@ -73,8 +74,9 @@ test('3D leaf settings: colours, scale and the most leaves are checked', () => {
     assert.equal(DEFAULT_TREE3D_PARAMETERS.leafSide, 'both');
     assert.throws(() => normalizeTree3dParameters({ leafOldColor: '#12345' }), { statusCode: 400 });
     assert.equal(normalizeTree3dParameters({ leafScale: 9 }).leafScale, 2.5);
-    assert.equal(normalizeTree3dParameters({ maxLeaves: 0 }).maxLeaves, 1);
-    assert.equal(DEFAULT_TREE3D_PARAMETERS.maxLeaves, 15);
+    assert.equal('maxLeaves' in DEFAULT_TREE3D_PARAMETERS, false);
+    assert.equal(normalizeTree3dParameters({ showLeafNames: false }).showLeafNames, false);
+    assert.equal(DEFAULT_TREE3D_PARAMETERS.showLeafNames, true);
 });
 
 test('3D VIP leaf settings: golds only, a VIP scale and the gold glow', () => {

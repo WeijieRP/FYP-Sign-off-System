@@ -35,12 +35,12 @@ const TREE3D_TITLE_DEFAULTS = {
 // 3D Leaf Adjustments: the feedback leaves on the 3D tree (frontend/3dTree/feedback-leaves.js).
 const TREE3D_LEAF_DEFAULTS = {
     showFeedbackLeaves: true,
+    showLeafNames: true,
     leafNewColor: '#7cb342',
     leafOldColor: '#1f5f2e',
     leafSide: 'both',
     leafNewHours: 24,
-    leafScale: 1,
-    maxLeaves: 15
+    leafScale: 1
 };
 
 // Greens only: light greens for new leaves, dark greens for older ones. The server accepts only these
@@ -124,6 +124,36 @@ function renderTree3dLeafSwatches() {
     }
 }
 
+// A leaf colour as the 3D tree shows it: at least this light (HSL), so a dark green leaf stands out on the
+// canopy (MIN_LIGHTNESS in frontend/3dTree/feedback-leaves.js).
+function tree3dShownColour(hex) {
+    const value = parseInt(String(hex).slice(1), 16);
+    if (!Number.isFinite(value)) return hex;
+    let r = ((value >> 16) & 255) / 255, g = ((value >> 8) & 255) / 255, b = (value & 255) / 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    let h = 0, s = 0, l = (max + min) / 2;
+    if (max !== min) {
+        const d = max - min;
+        s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+        if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
+        else if (max === g) h = (b - r) / d + 2;
+        else h = (r - g) / d + 4;
+        h /= 6;
+    }
+    l = Math.max(l, 0.38);
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
+    const channel = t => {
+        if (t < 0) t += 1;
+        if (t > 1) t -= 1;
+        if (t < 1 / 6) return p + (q - p) * 6 * t;
+        if (t < 1 / 2) return q;
+        if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+        return p;
+    };
+    [r, g, b] = s === 0 ? [l, l, l] : [channel(h + 1 / 3), channel(h), channel(h - 1 / 3)];
+    return `#${[r, g, b].map(v => Math.round(v * 255).toString(16).padStart(2, '0')).join('')}`;
+}
+
 // The preview shows the RainTree leaf in the chosen colours and sides, sized with the leaf scale.
 // A left leaf is the leaf mirrored; with left and right mixed, the new leaf shows right and the older left.
 function updateTree3dLeafPreview() {
@@ -135,7 +165,7 @@ function updateTree3dLeafPreview() {
         const preview = tree3dField(`leaf${which}Preview`);
         const shownSide = side === 'both' ? (which === 'New' ? 'right' : 'left') : side;
         if (preview) {
-            preview.style.setProperty('--leaf-colour', colour);
+            preview.style.setProperty('--leaf-colour', tree3dShownColour(colour));
             const size = (0.5 + scale * 0.3).toFixed(2);
             preview.style.transform = `scale(${shownSide === 'left' ? -size : size}, ${size})`;
         }
@@ -222,6 +252,7 @@ function fillTree3dForm(settings) {
     tree3dField('showYearReview').checked = s.showYearReview !== false;
 
     tree3dField('showFeedbackLeaves').checked = leaves.showFeedbackLeaves !== false;
+    tree3dField('showLeafNames').checked = leaves.showLeafNames !== false;
     // A colour saved before the greens-only choice falls back to the default green.
     const offered = (which, hex) => TREE3D_LEAF_COLOURS[which].some(([, value]) => value === String(hex).toLowerCase());
     tree3dField('leafNewColor').value = offered('New', leaves.leafNewColor) ? leaves.leafNewColor.toLowerCase() : TREE3D_LEAF_DEFAULTS.leafNewColor;
@@ -229,7 +260,6 @@ function fillTree3dForm(settings) {
     tree3dField('leafSide').value = ['both', 'left', 'right'].includes(leaves.leafSide) ? leaves.leafSide : 'both';
     tree3dField('leafNewHours').value = leaves.leafNewHours;
     tree3dField('leafScale').value = leaves.leafScale;
-    tree3dField('maxLeaves').value = leaves.maxLeaves;
     const vip = { ...TREE3D_VIP_DEFAULTS, ...(settings || {}) };
     tree3dField('leafVipColor').value = offered('Vip', vip.vipLeafColor) ? vip.vipLeafColor.toLowerCase() : TREE3D_VIP_DEFAULTS.vipLeafColor;
     tree3dField('vipLeafScale').value = vip.vipLeafScale;
@@ -271,12 +301,12 @@ function collectTree3dSettings() {
         showControlsBar: tree3dField('showControlsBar').checked,
         showYearReview: tree3dField('showYearReview').checked,
         showFeedbackLeaves: tree3dField('showFeedbackLeaves').checked,
+        showLeafNames: tree3dField('showLeafNames').checked,
         leafNewColor: tree3dField('leafNewColor').value,
         leafOldColor: tree3dField('leafOldColor').value,
         leafSide: tree3dField('leafSide').value,
         leafNewHours: Number(tree3dField('leafNewHours').value) || 0,
         leafScale: Number(tree3dField('leafScale').value) || TREE3D_LEAF_DEFAULTS.leafScale,
-        maxLeaves: whole('maxLeaves', TREE3D_LEAF_DEFAULTS.maxLeaves),
         vipLeafColor: tree3dField('leafVipColor').value,
         vipLeafScale: Number(tree3dField('vipLeafScale').value) || TREE3D_VIP_DEFAULTS.vipLeafScale,
         vipGlow: tree3dField('vipGlow').checked,
@@ -363,6 +393,9 @@ async function loadTree3dSettings() {
         const response = await fetch('/api/parameters');
         const data = await response.json();
         fillTree3dForm(data.parameters?.tree3dParameters);
+        // The 3D tree shows as many leaves as the 2D tree's Maximum Visible Leaves.
+        const count2d = tree3dField('leafCount2d');
+        if (count2d) count2d.textContent = String(Number(data.parameters?.treeParameters?.leafFallThreshold) || 15);
     } catch (error) {
         console.error('Error loading 3D tree settings:', error);
         fillTree3dForm(null);

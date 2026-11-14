@@ -21,6 +21,7 @@
 //   titleBox           the title card: the same settings as the 2D tree's title box, plus 'auto'
 //                      position (the page's own layout: top centre, top left on a wall-shaped screen)
 //   showFeedbackLeaves one leaf per feedback on the tree (the RainTree leaf model)
+//   showLeafNames      the visitor's name on each leaf, as on the 2D tree
 //   leafNewColor, leafOldColor
 //                      leaf colours, greens only: a light green for new leaves and a dark green for older
 //                      ones (LEAF_NEW_COLOURS / LEAF_OLD_COLOURS); a leaf counts as new for leafNewHours
@@ -28,7 +29,7 @@
 //                      leaf is the RainTree leaf model mirrored
 //   leafNewHours       0 to 168 hours
 //   leafScale          size of the leaves on the tree, 0.4 to 2.5 times the standard size
-//   maxLeaves          most leaves on the tree; past that the oldest leaf falls (as leafFallThreshold on 2D)
+//   (how many leaves: the same as the 2D tree, its treeParameters.leafFallThreshold "Maximum Visible Leaves")
 //   vipLeafColor       VIP leaves' gold (VIP_LEAF_COLOURS); VIPs are the names in the admin's VIP Management
 //   vipLeafScale       size of VIP leaves, 0.4 to 2.5 (2D: vipLeafDisplayScale)
 //   vipGlow            the gold pulse around VIP leaves (2D: vipGoldPulse)
@@ -72,12 +73,12 @@ const DEFAULT_TREE3D_PARAMETERS = Object.freeze({
   gustRequestedAt: '',
   sunsetRequestedAt: '',
   showFeedbackLeaves: true,
+  showLeafNames: true,
   leafNewColor: '#7cb342',
   leafOldColor: '#1f5f2e',
   leafSide: 'both',
   leafNewHours: 24,
   leafScale: 1,
-  maxLeaves: 15,
   vipLeafColor: '#d4af37',
   vipLeafScale: 1,
   vipGlow: true,
@@ -148,12 +149,12 @@ function normalizeTree3dParameters(updates) {
   if (has('gustRequestedAt')) out.gustRequestedAt = timestamp(updates.gustRequestedAt, 'Wind gust time');
   if (has('sunsetRequestedAt')) out.sunsetRequestedAt = timestamp(updates.sunsetRequestedAt, 'Sunset time');
   if (has('showFeedbackLeaves')) out.showFeedbackLeaves = bool(updates.showFeedbackLeaves, 'Show leaves');
+  if (has('showLeafNames')) out.showLeafNames = bool(updates.showLeafNames, 'Show names on leaves');
   if (has('leafNewColor')) out.leafNewColor = colour(updates.leafNewColor, LEAF_NEW_COLOURS, 'New leaf colour');
   if (has('leafOldColor')) out.leafOldColor = colour(updates.leafOldColor, LEAF_OLD_COLOURS, 'Older leaf colour');
   if (has('leafSide')) out.leafSide = oneOf(updates.leafSide, LEAF_SIDES, 'Leaf side');
   if (has('leafNewHours')) out.leafNewHours = Math.round(number(updates.leafNewHours, 0, 168, 'New leaf hours') * 10) / 10;
   if (has('leafScale')) out.leafScale = Math.round(number(updates.leafScale, 0.4, 2.5, 'Leaf scale') * 100) / 100;
-  if (has('maxLeaves')) out.maxLeaves = Math.round(number(updates.maxLeaves, 1, 200, 'Most leaves on the tree'));
   if (has('vipLeafColor')) out.vipLeafColor = colour(updates.vipLeafColor, VIP_LEAF_COLOURS, 'VIP leaf colour');
   if (has('vipLeafScale')) out.vipLeafScale = Math.round(number(updates.vipLeafScale, 0.4, 2.5, 'VIP leaf scale') * 100) / 100;
   if (has('vipGlow')) out.vipGlow = bool(updates.vipGlow, 'VIP gold glow');

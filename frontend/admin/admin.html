@@ -1323,7 +1323,10 @@
                                 <label style="display:flex; align-items:center; gap:10px; font-weight:600; color:#334155; margin-bottom:6px;">
                                     <input type="checkbox" id="tree3d-showFeedbackLeaves"> Show a leaf for each feedback on the 3D tree
                                 </label>
-                                <p style="font-size:12px; color:#666; margin:0 0 16px;">The leaf is the RainTree leaf model. A new feedback's leaf flies in, a new visitor's leaf glows for a minute, and past the most leaves the oldest leaf falls, as on the 2D tree.</p>
+                                <label style="display:flex; align-items:center; gap:10px; font-weight:600; color:#334155; margin-bottom:6px;">
+                                    <input type="checkbox" id="tree3d-showLeafNames"> Show the visitor's name on each leaf (as the 2D tree)
+                                </label>
+                                <p style="font-size:12px; color:#666; margin:0 0 16px;">The leaf is the RainTree leaf model. The 3D tree shows the same leaves as the 2D tree: a new feedback's leaf flies in, a new visitor's leaf glows for a minute, and past the 2D tree's Maximum Visible Leaves the oldest leaf falls.</p>
                                 <div style="display:flex; gap:28px; flex-wrap:wrap; align-items:flex-start;">
                                     <div style="flex:1; min-width:300px;">
                                         <div style="margin-bottom:16px;">
@@ -1353,9 +1356,9 @@
                                                 </div>
                                             </div>
                                             <div>
-                                                <label for="tree3d-maxLeaves" style="display:block; font-weight:600; color:#334155; margin-bottom:4px;">Most leaves on the tree</label>
-                                                <input type="number" id="tree3d-maxLeaves" min="1" max="200" step="1" value="15" style="width:90px;">
-                                                <p style="font-size:12px; color:#666; margin-top:4px;">Past this, the oldest leaf falls.</p>
+                                                <span style="display:block; font-weight:600; color:#334155; margin-bottom:4px;">Leaves on the tree</span>
+                                                <p style="margin:0; color:#334155;">Same as the 2D tree: <strong id="tree3d-leafCount2d">15</strong> leaves</p>
+                                                <p style="font-size:12px; color:#666; margin-top:4px;">Set by Maximum Visible Leaves in the 2D Tree Parameters Settings. Past it, the oldest leaf falls on both trees; at growth stage 0 neither shows leaves.</p>
                                             </div>
                                             <div>
                                                 <label for="tree3d-leafScale" style="display:block; font-weight:600; color:#334155; margin-bottom:4px;">Leaf scale</label>
