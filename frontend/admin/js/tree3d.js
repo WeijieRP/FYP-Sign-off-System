@@ -286,7 +286,11 @@ function fillTree3dForm(settings) {
     tree3dField('leafNewColor').value = offered('New', leaves.leafNewColor) ? leaves.leafNewColor.toLowerCase() : TREE3D_LEAF_DEFAULTS.leafNewColor;
     tree3dField('leafOldColor').value = offered('Old', leaves.leafOldColor) ? leaves.leafOldColor.toLowerCase() : TREE3D_LEAF_DEFAULTS.leafOldColor;
     tree3dField('leafSide').value = ['both', 'left', 'right'].includes(leaves.leafSide) ? leaves.leafSide : 'both';
-    tree3dField('leafNewHours').value = leaves.leafNewHours;
+    // "A leaf stays light for": whole hours as hours, anything shorter or in between as minutes.
+    const lightHours = Math.max(0, Number(leaves.leafNewHours) || 0);
+    const inHours = lightHours >= 1 && Number.isInteger(lightHours);
+    tree3dField('leafNewHours').value = inHours ? lightHours : Math.round(lightHours * 60);
+    if (tree3dField('leafNewUnit')) tree3dField('leafNewUnit').value = inHours ? 'hours' : 'minutes';
     tree3dField('leafScale').value = leaves.leafScale;
     const vip = { ...TREE3D_VIP_DEFAULTS, ...(settings || {}) };
     tree3dField('leafVipColor').value = offered('Vip', vip.vipLeafColor) ? vip.vipLeafColor.toLowerCase() : TREE3D_VIP_DEFAULTS.vipLeafColor;
@@ -343,7 +347,7 @@ function collectTree3dSettings() {
         leafNewColor: tree3dField('leafNewColor').value,
         leafOldColor: tree3dField('leafOldColor').value,
         leafSide: tree3dField('leafSide').value,
-        leafNewHours: Number(tree3dField('leafNewHours').value) || 0,
+        leafNewHours: (Number(tree3dField('leafNewHours').value) || 0) / (tree3dField('leafNewUnit')?.value === 'minutes' ? 60 : 1),
         leafScale: Number(tree3dField('leafScale').value) || TREE3D_LEAF_DEFAULTS.leafScale,
         vipLeafColor: tree3dField('leafVipColor').value,
         vipLeafScale: Number(tree3dField('vipLeafScale').value) || TREE3D_VIP_DEFAULTS.vipLeafScale,

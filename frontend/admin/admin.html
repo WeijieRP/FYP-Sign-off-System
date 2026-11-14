@@ -1316,7 +1316,7 @@
                                     <div>
                                         <label for="tree3d-maxVisibleLeaves" style="display:block; font-weight:600; color:#334155; margin-bottom:4px;">Maximum Visible Leaves</label>
                                         <input type="number" id="tree3d-maxVisibleLeaves" min="1" max="500" step="1" value="15" style="width:120px;">
-                                        <p style="font-size:12px; color:#666; margin-top:6px;">Shared with the 2D tree. Past it, the oldest leaf falls on both trees.</p>
+                                        <p style="font-size:12px; color:#666; margin-top:6px;">First in, first out, shared with the 2D tree: at 100, the 101st leaf makes the oldest fall and the new one joins. Many leaves are made smaller on the 3D tree so they all fit.</p>
                                     </div>
                                     <div>
                                         <label for="tree3d-leafAppearMs" style="display:block; font-weight:600; color:#334155; margin-bottom:4px;">Leaf appear duration (milliseconds)</label>
@@ -1343,7 +1343,7 @@
                                 <label style="display:flex; align-items:center; gap:10px; font-weight:600; color:#334155; margin-bottom:6px;">
                                     <input type="checkbox" id="tree3d-badgeColours"> Colour new leaves by their badge (as the 2D tree)
                                 </label>
-                                <p style="font-size:12px; color:#666; margin:0 0 12px;">Off: new leaves are the light green from 3D Leaf Adjustments. On: a new leaf takes its badge's colour below, for as long as it counts as new; older leaves stay dark green and VIP leaves gold. The leaf size is the Leaf scale in 3D Leaf Adjustments.</p>
+                                <p style="font-size:12px; color:#666; margin:0 0 12px;">Off: leaves are light green when new and dark green later (3D Leaf Adjustments). On: a leaf starts in a light shade of its badge's colour below and turns to a dark shade of it after the time in "A leaf stays light for"; VIP leaves stay gold. The leaf size is the Leaf scale in 3D Leaf Adjustments.</p>
                                 <div id="tree3d-badgeColours-list" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap:10px 18px;"></div>
                             </div>
                         </div>
@@ -1485,11 +1485,15 @@
                                                 </select>
                                             </div>
                                             <div>
-                                                <label for="tree3d-leafNewHours" style="display:block; font-weight:600; color:#334155; margin-bottom:4px;">A leaf counts as new for</label>
+                                                <label for="tree3d-leafNewHours" style="display:block; font-weight:600; color:#334155; margin-bottom:4px;">A leaf stays light for</label>
                                                 <div style="display:flex; align-items:center; gap:8px;">
-                                                    <input type="number" id="tree3d-leafNewHours" min="0" max="168" step="1" value="24" style="width:90px;">
-                                                    <span>hours</span>
+                                                    <input type="number" id="tree3d-leafNewHours" min="0" max="10080" step="1" value="24" style="width:90px;">
+                                                    <select id="tree3d-leafNewUnit" aria-label="Minutes or hours" style="padding:5px 6px; border:1px solid #d1d5db; border-radius:6px;">
+                                                        <option value="minutes">minutes</option>
+                                                        <option value="hours" selected>hours</option>
+                                                    </select>
                                                 </div>
+                                                <p style="font-size:12px; color:#666; margin-top:6px;">A leaf joins light (light green, or a light shade of its badge colour) and turns dark after this long, for example 1 hour.</p>
                                             </div>
                                             <div>
                                                 <span style="display:block; font-weight:600; color:#334155; margin-bottom:4px;">Leaves on the tree</span>

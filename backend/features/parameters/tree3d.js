@@ -27,7 +27,8 @@
 //                      ones (LEAF_NEW_COLOURS / LEAF_OLD_COLOURS); a leaf counts as new for leafNewHours
 //   leafSide           'both' (left and right leaves mixed, as on the 2D tree), 'left' or 'right'; a left
 //                      leaf is the RainTree leaf model mirrored
-//   leafNewHours       0 to 168 hours
+//   leafNewHours       0 to 168 hours (to a few seconds, so minutes can be set): a leaf starts light (the
+//                      new colour, or a light shade of its badge colour) and turns dark after this long
 //   leafScale          size of the leaves on the tree, 0.4 to 2.5 times the standard size
 //   (how many leaves: the same as the 2D tree, its treeParameters.leafFallThreshold "Maximum Visible Leaves")
 //   vipLeafColor       VIP leaves' gold (VIP_LEAF_COLOURS); VIPs are the names in the admin's VIP Management
@@ -47,8 +48,8 @@
 //   leafShowcaseSeconds how long a new leaf stays at the bottom middle before floating up, 0 to 30 seconds
 //   leafFloatMs        how long it takes to float up to the tree, 2000 to 20000 ms
 //   leafFallMs         how long the oldest leaf takes to fall, 500 to 10000 ms (2D: Leaf Fall Duration)
-//   badgeColours       new leaves in their badge's colour instead of the new-leaf green (2D: Badge Leaf
-//                      Styling, which tints new leaves); older leaves stay dark green
+//   badgeColours       leaves in their badge's colour instead of green (2D: Badge Leaf Styling): a light
+//                      shade while new, then a dark shade of it after leafNewHours
 //   badgeLeafColors    the colour for each badge (BADGE_KEYS), any colour as on the 2D tree
 //   (Maximum Visible Leaves stays the 2D tree's treeParameters.leafFallThreshold, shared by both trees)
 
@@ -194,7 +195,8 @@ function normalizeTree3dParameters(updates) {
   if (has('leafNewColor')) out.leafNewColor = colour(updates.leafNewColor, LEAF_NEW_COLOURS, 'New leaf colour');
   if (has('leafOldColor')) out.leafOldColor = colour(updates.leafOldColor, LEAF_OLD_COLOURS, 'Older leaf colour');
   if (has('leafSide')) out.leafSide = oneOf(updates.leafSide, LEAF_SIDES, 'Leaf side');
-  if (has('leafNewHours')) out.leafNewHours = Math.round(number(updates.leafNewHours, 0, 168, 'New leaf hours') * 10) / 10;
+  // Hours, to the minute or finer (the admin can enter minutes): 1 minute is about 0.017 hours.
+  if (has('leafNewHours')) out.leafNewHours = Math.round(number(updates.leafNewHours, 0, 168, 'New leaf hours') * 1000) / 1000;
   if (has('leafScale')) out.leafScale = Math.round(number(updates.leafScale, 0.4, 2.5, 'Leaf scale') * 100) / 100;
   if (has('vipLeafColor')) out.vipLeafColor = colour(updates.vipLeafColor, VIP_LEAF_COLOURS, 'VIP leaf colour');
   if (has('vipLeafScale')) out.vipLeafScale = Math.round(number(updates.vipLeafScale, 0.4, 2.5, 'VIP leaf scale') * 100) / 100;

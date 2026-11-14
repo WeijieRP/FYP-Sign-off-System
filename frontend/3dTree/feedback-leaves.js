@@ -180,6 +180,17 @@ function displayColour(hex) {
   return colour.multiplyScalar(TINT_BOOST);
 }
 
+// A badge colour's light shade (a new leaf) or dark shade (an older one), as light green and dark green
+// for the plain leaves. The dark shade is still shown at least MIN_LIGHTNESS light (displayColour).
+function badgeShade(hex, light) {
+  const colour = new T.Color(hex);
+  const hsl = {};
+  colour.getHSL(hsl, T.SRGBColorSpace);
+  const lightness = light ? Math.min(0.66, Math.max(0.52, hsl.l + 0.08)) : Math.min(0.3, Math.max(0.2, hsl.l - 0.2));
+  colour.setHSL(hsl.h, hsl.s, lightness, T.SRGBColorSpace);
+  return `#${colour.getHexString(T.SRGBColorSpace)}`;
+}
+
 // Fits a name inside the leaf as the 2D tree does (fitLeafName): whole words, as few lines as fit (up to
 // three), and when even three do not fit, the last line shortened with "…".
 const NAME_FONT = `700 ${NAME_FONT_PX}px Inter, "Segoe UI", Arial, sans-serif`;
@@ -426,6 +437,7 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
     const max = mode.live ? Math.max(1, Number(settings.tree2d.leafFallThreshold) || 15) : keys.length;
     const visible = new Set(bare ? [] : keys.slice(-max));
     const all = new Set(bare ? [] : keys);
+    fitScale = leavesFit(visible.size);
 
     // Which leaves fly in: on opening the most recent few, later every leaf not seen before.
     const landing = new Set();
@@ -478,6 +490,34 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
     });
   }
 
+  // ---------- many leaves ----------
+
+  // The newest Maximum Visible Leaves are on the tree, first in, first out: when one more arrives, the
+  // oldest falls and the new one joins (showVisitors). When more leaves are on the tree than fit side by
+  // side on the canopy at their size (a high Maximum Visible Leaves such as 100, a young tree, a small leaf
+  // area), they are all made just small enough to fit, so they still do not overlap; up to that, they keep
+  // the admin's size.
+  let fitScale = 1;
+  function leavesFit(count) {
+    if (!count || !anchors.length) return 1;
+    camera.updateMatrixWorld();
+    const right = new T.Vector3().setFromMatrixColumn(camera.matrixWorld, 0).normalize();
+    const up = new T.Vector3().setFromMatrixColumn(camera.matrixWorld, 1).normalize();
+    const toCamera = new T.Vector3();
+    const inArea = anchors.filter(anchor => inLeafArea(anchor.position));
+    const usable = (inArea.length > 40 ? inArea : anchors)
+      .filter(anchor => anchor.outward.dot(toCamera.subVectors(camera.position, anchor.position).normalize()) > 0.2);
+    if (usable.length < 20) return 1;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const anchor of usable) {
+      const x = anchor.position.dot(right), y = anchor.position.dot(up);
+      minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+    }
+    const area = (maxX - minX) * (maxY - minY) * 0.7; // the rounded canopy fills about this much of its box
+    const room = (BASE_SIZE * Math.max(1, settings.leafScale, settings.vipLeafScale) * 1.25) ** 2; // one leaf, spaced
+    return Math.max(0.35, Math.min(1, Math.sqrt(area / room / count)));
+  }
+
   // ---------- leaves ----------
 
   // The admin's leaf area (2D: Leaf Canopy Width, Height and Top Offset): the middle part of the canopy,
@@ -496,7 +536,7 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
   function spotFor(key) {
     if (placed.has(key)) return placed.get(key);
     const random = seededRandom(`${key}|spot`);
-    const size = BASE_SIZE * Math.max(1, settings.leafScale, settings.vipLeafScale);
+    const size = BASE_SIZE * Math.max(1, settings.leafScale, settings.vipLeafScale) * fitScale;
     const toCamera = new T.Vector3();
     // Only spots in the admin's leaf area (if it leaves enough of the canopy). Among those, prefer spots
     // facing the viewer, so the leaves are seen, and then spots on screen and clear of the title box.
@@ -673,11 +713,14 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
   // VIP leaves have their own scale (2D: vipLeafDisplayScale).
   function currentScale(leaf) {
     const scale = leaf?.isVip ? Number(settings.vipLeafScale) : Number(settings.leafScale);
-    return (BASE_SIZE / MODEL_SIZE) * (scale || 1);
+    return (BASE_SIZE / MODEL_SIZE) * (scale || 1) * fitScale; // smaller only when many leaves must fit
   }
 
-  // New leaves in the new colour, older ones in the older colour (2D: New / Old leaf pictures). With the
-  // admin's badge colours on, a new leaf takes its badge's colour instead (2D: Badge Leaf Styling).
+  // A leaf starts light when its feedback comes in and turns dark once it has been on the tree for the
+  // admin's leafNewHours ("A leaf stays light for", minutes or hours): light green, then dark green (2D: New /
+  // Old leaf pictures). With the admin's badge colours on, a light shade of its badge's colour, then a dark
+  // shade of it (2D: Badge Leaf Styling). VIP leaves stay gold. tintLeaf runs at every check for new
+  // feedback, so a leaf turns dark within one check of its time, fading over a few seconds (update).
   function badgeColour(visitor) {
     const key = visitor?.badgeKey || 'feedback-completer';
     return settings.badgeLeafColors?.[key] || visitor?.badgeColor || BADGE_LEAF_COLOURS[key] || settings.leafNewColor;
@@ -686,8 +729,9 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
     const created = timeOf(leaf.visitor?.created_at);
     const newForMs = (Number(settings.leafNewHours) || 0) * 3600 * 1000;
     const isNew = created !== null && Date.now() - created <= newForMs;
-    const newColour = settings.badgeColours === true ? badgeColour(leaf.visitor) : settings.leafNewColor;
-    const colour = leaf.isVip ? settings.vipLeafColor : (isNew ? newColour : settings.leafOldColor);
+    const plain = isNew ? settings.leafNewColor : settings.leafOldColor;
+    const colour = leaf.isVip ? settings.vipLeafColor
+      : settings.badgeColours === true ? badgeShade(badgeColour(leaf.visitor), isNew) : plain;
     leaf.targetColour = displayColour(colour);
     if (immediate) leaf.colour.copy(leaf.targetColour);
   }
@@ -917,7 +961,7 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
     for (const [key, leaf] of leaves) {
       if (leaf.state !== 'falling') shownSpot(leaf, leaf.shown);
       leaf.scale += (currentScale(leaf) - leaf.scale) * Math.min(1, dt * 4); // size changes ease in
-      leaf.colour.lerp(leaf.targetColour, Math.min(1, dt * 3));       // colour changes too
+      leaf.colour.lerp(leaf.targetColour, Math.min(1, dt * 0.9));     // colour changes fade over a few seconds
       if (leaf.state === 'landing') placeFlight(leaf, time, elapsed);
       else if (leaf.state === 'falling') {
         if (placeFall(leaf, time)) { removeLeaf(leaf); leaves.delete(key); continue; }

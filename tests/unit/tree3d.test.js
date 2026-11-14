@@ -111,3 +111,9 @@ test('badge leaf colours take any colour for the known badges and keep the rest'
     assert.equal(merged.badgeColours, false);
     assert.equal(merged.leafShowcaseSeconds, 12);
 });
+
+test('the time a leaf stays light can be set in minutes', () => {
+    assert.equal(normalizeTree3dParameters({ leafNewHours: 1 / 60 }).leafNewHours, 0.017);
+    assert.equal(normalizeTree3dParameters({ leafNewHours: 0.5 }).leafNewHours, 0.5);
+    assert.equal(normalizeTree3dParameters({ leafNewHours: 500 }).leafNewHours, 168);
+});
