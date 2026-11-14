@@ -1381,6 +1381,52 @@
                             </div>
                         </div>
                         <br>
+                        <!-- 3D VIP Leaf Adjustments: VIP visitors (the names in VIP Management) get a gold leaf on the
+                             3D tree (frontend/3dTree/feedback-leaves.js). The leaf is the RainTree model; not uploaded. -->
+                        <div class="tree-adjustment-section">
+                            <div class="section-header">
+                                <h3>3D VIP Leaf Adjustments</h3>
+                                <div style="display:flex; gap:10px; align-items:center;">
+                                    <button class="btn-primary" onclick="saveTree3dSettings()">Save VIP Leaves</button>
+                                    <button class="btn-primary" onclick="resetTree3dVipSettings()">Reset to Defaults</button>
+                                </div>
+                            </div>
+                            <div class="section-body">
+                                <p style="font-size:12px; color:#666; margin:0 0 14px;">VIP visitors are the names in VIP Management. Their leaves on the 3D tree are gold, as on the 2D tree, and a change to the VIP list shows on the 3D screen within about 5 seconds.
+                                    <button class="btn-secondary" type="button" onclick="showPage('vip')" style="margin-left:8px;">Open VIP Management</button>
+                                </p>
+                                <div style="display:flex; gap:28px; flex-wrap:wrap; align-items:flex-start;">
+                                    <div style="flex:1; min-width:300px;">
+                                        <div style="margin-bottom:16px;">
+                                            <span style="display:block; font-weight:600; color:#334155; margin-bottom:6px;">VIP leaves: gold</span>
+                                            <div class="leaf3d-swatches" id="tree3d-leafVipSwatches" role="group" aria-label="VIP leaf colour, golds"></div>
+                                            <input type="hidden" id="tree3d-leafVipColor" value="#d4af37">
+                                        </div>
+                                        <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap:14px 24px;">
+                                            <div>
+                                                <label for="tree3d-vipLeafScale" style="display:block; font-weight:600; color:#334155; margin-bottom:4px;">VIP leaf scale</label>
+                                                <div style="display:flex; align-items:center; gap:8px;">
+                                                    <input type="range" id="tree3d-vipLeafScale" min="0.4" max="2.5" step="0.05" value="1" oninput="updateTree3dLeafPreview()">
+                                                    <span id="tree3d-vipLeafScaleValue">1</span>
+                                                </div>
+                                                <p style="font-size:12px; color:#666; margin-top:4px;">Size of VIP leaves on the 3D tree (1 = standard).</p>
+                                            </div>
+                                            <div>
+                                                <span style="display:block; font-weight:600; color:#334155; margin-bottom:4px;">Glow</span>
+                                                <label style="display:flex; align-items:center; gap:8px; color:#334155;">
+                                                    <input type="checkbox" id="tree3d-vipGlow" onchange="updateTree3dLeafPreview()"> Gold glow pulsing around VIP leaves
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div style="text-align:center;">
+                                        <div class="leaf3d-preview-frame"><div class="leaf3d-vip-glow" id="tree3d-leafVipGlowBox"><div class="leaf3d-preview" id="tree3d-leafVipPreview"></div></div></div>
+                                        <p id="tree3d-leafVipCaption" style="font-size:12px; color:#666; margin-top:6px;">VIP leaf</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <br>
                         <div class="tree-adjustment-section">
                             <div class="section-header">
                                 <h3>3D Tree Title Box Settings</h3>

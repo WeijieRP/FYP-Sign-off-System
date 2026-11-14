@@ -8,7 +8,9 @@
 //     at twice its size and shrinking to its place on the tree;
 //   - a new visitor's leaf glows green for the first minute;
 //   - past the most leaves allowed on the tree, the oldest leaf falls;
-//   - Year Review's "View Tree" shows that year's leaves, "Live" the current ones.
+//   - Year Review's "View Tree" shows that year's leaves, "Live" the current ones;
+//   - a VIP's leaf (a name on the admin's VIP Management list, as /api/tree marks it, or a name from
+//     /api/tree/vip-names) is gold, with the 2D tree's gold pulse, at its own VIP scale.
 // Colours (light green new, dark green older), left or right leaves, size, how long a leaf counts as new
 // and the most leaves come from the admin's 3D Leaf
 // Adjustments (tree3d-settings.js). New feedback is checked every 5 seconds from /api/tree.
@@ -26,8 +28,12 @@ const GLOW_FADE_MS = 900;
 const FALL_MS = 4200;            // 2D: leafFallDuration
 const TINT_BOOST = 2.3;          // the leaf picture is mid grey: this brings the chosen colour back to strength
 const NEON = new T.Color(0x39ff14);
+const GOLD_GLOW = new T.Color(0xffd23f); // the 2D VIP leaf's gold glow (vipGoldPulse in tree.css)
 
-const DEFAULTS = { showFeedbackLeaves: true, leafNewColor: '#7cb342', leafOldColor: '#1f5f2e', leafSide: 'both', leafNewHours: 24, leafScale: 1, maxLeaves: 15 };
+const DEFAULTS = { showFeedbackLeaves: true, leafNewColor: '#7cb342', leafOldColor: '#1f5f2e', leafSide: 'both', leafNewHours: 24, leafScale: 1, maxLeaves: 15,
+  vipLeafColor: '#d4af37', vipLeafScale: 1, vipGlow: true };
+
+const normaliseName = name => String(name || '').trim().toLowerCase();
 
 // ---------- small helpers (seeded random numbers as on the 2D tree) ----------
 
@@ -143,6 +149,7 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
   let anchors = [];
   let mode = { live: true, year: null };
   let requestId = 0;
+  let vipNames = new Set();         // names on the admin's VIP Management list
   const glowMap = glowTexture();
   const now = () => performance.now();
 
@@ -186,9 +193,14 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
     let visitors;
     try {
       const query = mode.live ? '' : `?year=${encodeURIComponent(mode.year)}`;
-      const response = await fetch(`/api/tree${query}`, { cache: 'no-store' });
+      const [response, vipResponse] = await Promise.all([
+        fetch(`/api/tree${query}`, { cache: 'no-store' }),
+        fetch('/api/tree/vip-names', { cache: 'no-store' }).catch(() => null),
+      ]);
       const data = await response.json();
       visitors = Array.isArray(data) ? data : [];
+      const vipData = vipResponse?.ok ? await vipResponse.json() : null;
+      if (Array.isArray(vipData?.vipNames)) vipNames = new Set(vipData.vipNames.map(normaliseName));
     } catch (error) {
       console.warn('Feedback leaves: could not check for new feedback.', error);
       return;
@@ -196,6 +208,13 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
     if (id !== requestId) return; // a newer check (or a year change) took over
     showVisitors(visitors);
   }
+
+  // VIP Management signals a changed VIP list (same browser): check at once, as the 2D tree does.
+  window.addEventListener('tree-vip-refresh', () => refresh());
+  window.addEventListener('storage', event => { if (event.key === 'tree-vip-refresh') refresh(); });
+
+  // As the 2D tree: VIP when /api/tree marks the visitor, or the name is on the VIP list.
+  const isVipVisitor = visitor => visitor?.isVip === true || vipNames.has(normaliseName(visitor?.name));
 
   function showVisitors(list) {
     const visitors = sortOldestFirst(list);
@@ -231,7 +250,7 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
       const key = keys[index];
       if (!visible.has(key)) return;
       const existing = leaves.get(key);
-      if (existing) { existing.visitor = visitor; tintLeaf(existing); return; }
+      if (existing) { existing.visitor = visitor; existing.isVip = isVipVisitor(visitor); tintLeaf(existing); return; }
       const leaf = createLeaf(key, visitor);
       if (!leaf) return;
       if (landing.has(key)) startFlight(leaf, order++);
@@ -244,7 +263,7 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
   function spotFor(key) {
     if (placed.has(key)) return placed.get(key);
     const random = seededRandom(`${key}|spot`);
-    const size = BASE_SIZE * Math.max(1, settings.leafScale);
+    const size = BASE_SIZE * Math.max(1, settings.leafScale, settings.vipLeafScale);
     const toCamera = new T.Vector3();
     // Prefer spots facing the viewer, so the leaves are seen; any spot if too few face this way.
     const facing = anchors.filter(anchor => anchor.outward.dot(toCamera.subVectors(camera.position, anchor.position).normalize()) > 0.2);
@@ -289,7 +308,8 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
     }));
     halo.visible = false;
     group.add(halo);
-    const leaf = { key, visitor, spot, mesh, material, halo, state: 'resting', scale: currentScale(), colour: new T.Color() };
+    const isVip = isVipVisitor(visitor);
+    const leaf = { key, visitor, isVip, spot, mesh, material, halo, state: 'resting', scale: currentScale({ isVip }), colour: new T.Color() };
     tintLeaf(leaf, true);
     placeAtRest(leaf, 0);
     return leaf;
@@ -308,8 +328,10 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
     return leaf.spot.prefersLeft ? -1 : 1;
   }
 
-  function currentScale() {
-    return (BASE_SIZE / MODEL_SIZE) * (Number(settings.leafScale) || 1);
+  // VIP leaves have their own scale (2D: vipLeafDisplayScale).
+  function currentScale(leaf) {
+    const scale = leaf?.isVip ? Number(settings.vipLeafScale) : Number(settings.leafScale);
+    return (BASE_SIZE / MODEL_SIZE) * (scale || 1);
   }
 
   // New leaves in the new colour, older ones in the older colour (2D: New / Old leaf pictures).
@@ -317,7 +339,8 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
     const created = timeOf(leaf.visitor?.created_at);
     const newForMs = (Number(settings.leafNewHours) || 0) * 3600 * 1000;
     const isNew = created !== null && Date.now() - created <= newForMs;
-    leaf.targetColour = new T.Color(isNew ? settings.leafNewColor : settings.leafOldColor).multiplyScalar(TINT_BOOST);
+    const colour = leaf.isVip ? settings.vipLeafColor : (isNew ? settings.leafNewColor : settings.leafOldColor);
+    leaf.targetColour = new T.Color(colour).multiplyScalar(TINT_BOOST);
     if (immediate) leaf.colour.copy(leaf.targetColour);
   }
 
@@ -446,9 +469,8 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
   function update(dt, elapsed) {
     if (!group.visible) return;
     const time = now();
-    const targetScale = currentScale();
     for (const [key, leaf] of leaves) {
-      leaf.scale += (targetScale - leaf.scale) * Math.min(1, dt * 4); // size changes ease in
+      leaf.scale += (currentScale(leaf) - leaf.scale) * Math.min(1, dt * 4); // size changes ease in
       leaf.colour.lerp(leaf.targetColour, Math.min(1, dt * 3));       // colour changes too
       if (leaf.state === 'landing') placeFlight(leaf, time);
       else if (leaf.state === 'falling') {
@@ -458,13 +480,18 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
         placeAtRest(leaf, elapsed);
       }
 
+      // A new visitor's green glow comes first (as on the 2D tree); otherwise a VIP leaf pulses gold.
       const glow = leaf.state === 'resting' ? glowAmount(leaf, time) : 0;
-      leaf.material.color.copy(leaf.colour).lerp(NEON, glow * 0.35);
-      leaf.halo.visible = glow > 0.01;
+      const gold = glow <= 0.01 && leaf.isVip && settings.vipGlow !== false && leaf.state !== 'falling'
+        ? 0.55 + 0.45 * (0.5 + 0.5 * Math.sin((time / 2000) * Math.PI * 2)) // 2D vipGoldPulse, 2 s
+        : 0;
+      leaf.material.color.copy(leaf.colour).lerp(NEON, glow * 0.35).multiplyScalar(1 + gold * 0.18);
+      leaf.halo.visible = glow > 0.01 || gold > 0;
       if (leaf.halo.visible) {
+        leaf.halo.material.color.copy(glow > 0.01 ? NEON : GOLD_GLOW);
         leaf.halo.position.copy(leaf.mesh.position);
-        leaf.halo.scale.copy(haloSize.setScalar(leaf.scale * MODEL_SIZE * 2.4));
-        leaf.halo.material.opacity = glow * 0.75;
+        leaf.halo.scale.copy(haloSize.setScalar(leaf.scale * MODEL_SIZE * (gold ? 2.1 : 2.4)));
+        leaf.halo.material.opacity = glow > 0.01 ? glow * 0.75 : gold * 0.7;
       }
     }
   }

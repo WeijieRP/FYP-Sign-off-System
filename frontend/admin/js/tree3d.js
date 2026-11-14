@@ -59,7 +59,22 @@ const TREE3D_LEAF_COLOURS = {
         ['Deep green', '#1b5e20'],
         ['Dark olive green', '#33691e'],
         ['Moss green', '#2d5a27']
+    ],
+    // Golds for VIP leaves (VIP_LEAF_COLOURS on the server).
+    Vip: [
+        ['Gold', '#d4af37'],
+        ['Bright gold', '#ffd700'],
+        ['Honey gold', '#e6b422'],
+        ['Pale gold', '#f0c75e'],
+        ['Dark gold', '#b8860b']
     ]
+};
+
+// 3D VIP Leaf Adjustments: VIP leaves (names in VIP Management) on the 3D tree.
+const TREE3D_VIP_DEFAULTS = {
+    vipLeafColor: '#d4af37',
+    vipLeafScale: 1,
+    vipGlow: true
 };
 
 // The rain areas the 3D page lists come from the same public Singapore feed.
@@ -87,9 +102,9 @@ function updateTree3dRangeLabels() {
     if (radius) tree3dField('titleRadiusValue').textContent = `${radius.value}px`;
 }
 
-// Colour swatches: light greens for the new leaves, dark greens for the older ones.
+// Colour swatches: light greens for the new leaves, dark greens for the older ones, golds for VIP leaves.
 function renderTree3dLeafSwatches() {
-    for (const which of ['New', 'Old']) {
+    for (const which of ['New', 'Old', 'Vip']) {
         const box = tree3dField(`leaf${which}Swatches`);
         if (!box || box.childElementCount) continue;
         for (const [name, hex] of TREE3D_LEAF_COLOURS[which]) {
@@ -129,6 +144,23 @@ function updateTree3dLeafPreview() {
         for (const swatch of tree3dField(`leaf${which}Swatches`)?.children || []) {
             swatch.setAttribute('aria-pressed', String(swatch.dataset.colour === colour));
         }
+    }
+
+    // The VIP leaf: gold, its own scale, the side as the new leaf, and the gold glow when on.
+    const vipScale = Number(tree3dField('vipLeafScale')?.value) || 1;
+    if (tree3dField('vipLeafScaleValue')) tree3dField('vipLeafScaleValue').textContent = String(Number(vipScale.toFixed(2)));
+    const vipColour = (tree3dField('leafVipColor')?.value || '').toLowerCase();
+    const vipSide = side === 'both' ? 'right' : side;
+    const vipPreview = tree3dField('leafVipPreview');
+    if (vipPreview) {
+        const size = (0.5 + vipScale * 0.3).toFixed(2);
+        vipPreview.style.setProperty('--leaf-colour', vipColour);
+        vipPreview.style.transform = `scale(${vipSide === 'left' ? -size : size}, ${size})`;
+    }
+    tree3dField('leafVipGlowBox')?.classList.toggle('glowing', tree3dField('vipGlow')?.checked === true);
+    if (tree3dField('leafVipCaption')) tree3dField('leafVipCaption').textContent = `VIP leaf, ${vipSide}`;
+    for (const swatch of tree3dField('leafVipSwatches')?.children || []) {
+        swatch.setAttribute('aria-pressed', String(swatch.dataset.colour === vipColour));
     }
 }
 
@@ -198,6 +230,10 @@ function fillTree3dForm(settings) {
     tree3dField('leafNewHours').value = leaves.leafNewHours;
     tree3dField('leafScale').value = leaves.leafScale;
     tree3dField('maxLeaves').value = leaves.maxLeaves;
+    const vip = { ...TREE3D_VIP_DEFAULTS, ...(settings || {}) };
+    tree3dField('leafVipColor').value = offered('Vip', vip.vipLeafColor) ? vip.vipLeafColor.toLowerCase() : TREE3D_VIP_DEFAULTS.vipLeafColor;
+    tree3dField('vipLeafScale').value = vip.vipLeafScale;
+    tree3dField('vipGlow').checked = vip.vipGlow !== false;
 
     tree3dField('showTitleBox').checked = box.showTitleBox !== false;
     tree3dField('titleText').value = box.titleText;
@@ -241,6 +277,9 @@ function collectTree3dSettings() {
         leafNewHours: Number(tree3dField('leafNewHours').value) || 0,
         leafScale: Number(tree3dField('leafScale').value) || TREE3D_LEAF_DEFAULTS.leafScale,
         maxLeaves: whole('maxLeaves', TREE3D_LEAF_DEFAULTS.maxLeaves),
+        vipLeafColor: tree3dField('leafVipColor').value,
+        vipLeafScale: Number(tree3dField('vipLeafScale').value) || TREE3D_VIP_DEFAULTS.vipLeafScale,
+        vipGlow: tree3dField('vipGlow').checked,
         titleBox: {
             showTitleBox: tree3dField('showTitleBox').checked,
             titleText: tree3dField('titleText').value,
@@ -280,12 +319,18 @@ async function saveTree3dSettings() {
 
 // Each section's Reset only resets that section.
 function tree3dLeafValues(settings) {
-    return Object.fromEntries(Object.keys(TREE3D_LEAF_DEFAULTS).map(key => [key, settings[key]]));
+    const keys = [...Object.keys(TREE3D_LEAF_DEFAULTS), ...Object.keys(TREE3D_VIP_DEFAULTS)];
+    return Object.fromEntries(keys.map(key => [key, settings[key]]));
 }
 
 async function resetTree3dSettings() {
     const current = collectTree3dSettings();
     fillTree3dForm({ ...TREE3D_DEFAULTS, ...tree3dLeafValues(current), titleBox: current.titleBox });
+    await saveTree3dSettings();
+}
+
+async function resetTree3dVipSettings() {
+    fillTree3dForm({ ...collectTree3dSettings(), ...TREE3D_VIP_DEFAULTS });
     await saveTree3dSettings();
 }
 

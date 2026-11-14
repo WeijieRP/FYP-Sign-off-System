@@ -8108,3 +8108,17 @@ input:checked + .slider:before {
     background: url('/assets/Tree/3dTreeLeaves/leaf-preview.png') center / contain no-repeat;
     mix-blend-mode: multiply;
 }
+
+/* 3D VIP Leaf Adjustments: the VIP preview pulses gold like the VIP leaves (2D: vipGoldPulse). */
+.leaf3d-vip-glow.glowing {
+    animation: leaf3dVipPulse 2s ease-in-out infinite;
+}
+
+@keyframes leaf3dVipPulse {
+    0%, 100% { filter: drop-shadow(0 0 5px rgba(255, 215, 0, 0.8)) drop-shadow(0 0 12px rgba(255, 200, 0, 0.6)); }
+    50% { filter: drop-shadow(0 0 10px rgba(255, 230, 80, 1)) drop-shadow(0 0 22px rgba(255, 215, 0, 0.9)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .leaf3d-vip-glow.glowing { animation: none; filter: drop-shadow(0 0 8px rgba(255, 215, 0, 0.9)); }
+}

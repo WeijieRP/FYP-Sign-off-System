@@ -29,6 +29,9 @@
 //   leafNewHours       0 to 168 hours
 //   leafScale          size of the leaves on the tree, 0.4 to 2.5 times the standard size
 //   maxLeaves          most leaves on the tree; past that the oldest leaf falls (as leafFallThreshold on 2D)
+//   vipLeafColor       VIP leaves' gold (VIP_LEAF_COLOURS); VIPs are the names in the admin's VIP Management
+//   vipLeafScale       size of VIP leaves, 0.4 to 2.5 (2D: vipLeafDisplayScale)
+//   vipGlow            the gold pulse around VIP leaves (2D: vipGoldPulse)
 
 const SKIES = ['sunrise', 'day', 'sunset', 'night'];
 const RIVER_MODES = ['auto', 'normal', 'high', 'danger'];
@@ -36,6 +39,8 @@ const RIVER_MODES = ['auto', 'normal', 'high', 'danger'];
 const LEAF_NEW_COLOURS = ['#7cb342', '#8bc34a', '#9ccc65', '#a4c639', '#66bb6a'];
 const LEAF_OLD_COLOURS = ['#1f5f2e', '#2e7d32', '#1b5e20', '#33691e', '#2d5a27'];
 const LEAF_SIDES = ['both', 'left', 'right'];
+// Golds for VIP leaves.
+const VIP_LEAF_COLOURS = ['#d4af37', '#ffd700', '#e6b422', '#f0c75e', '#b8860b'];
 const TITLE_POSITIONS = ['auto', 'top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right'];
 
 const DEFAULT_TITLE_BOX = Object.freeze({
@@ -73,6 +78,9 @@ const DEFAULT_TREE3D_PARAMETERS = Object.freeze({
   leafNewHours: 24,
   leafScale: 1,
   maxLeaves: 15,
+  vipLeafColor: '#d4af37',
+  vipLeafScale: 1,
+  vipGlow: true,
   titleBox: DEFAULT_TITLE_BOX
 });
 
@@ -146,6 +154,9 @@ function normalizeTree3dParameters(updates) {
   if (has('leafNewHours')) out.leafNewHours = Math.round(number(updates.leafNewHours, 0, 168, 'New leaf hours') * 10) / 10;
   if (has('leafScale')) out.leafScale = Math.round(number(updates.leafScale, 0.4, 2.5, 'Leaf scale') * 100) / 100;
   if (has('maxLeaves')) out.maxLeaves = Math.round(number(updates.maxLeaves, 1, 200, 'Most leaves on the tree'));
+  if (has('vipLeafColor')) out.vipLeafColor = colour(updates.vipLeafColor, VIP_LEAF_COLOURS, 'VIP leaf colour');
+  if (has('vipLeafScale')) out.vipLeafScale = Math.round(number(updates.vipLeafScale, 0.4, 2.5, 'VIP leaf scale') * 100) / 100;
+  if (has('vipGlow')) out.vipGlow = bool(updates.vipGlow, 'VIP gold glow');
 
   if (has('titleBox')) {
     const box = updates.titleBox;
@@ -179,6 +190,7 @@ function mergeTree3dParameters(current, changes) {
 module.exports = {
   LEAF_NEW_COLOURS,
   LEAF_OLD_COLOURS,
+  VIP_LEAF_COLOURS,
   DEFAULT_TREE3D_PARAMETERS,
   DEFAULT_TITLE_BOX,
   normalizeTree3dParameters,

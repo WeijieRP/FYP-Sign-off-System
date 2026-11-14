@@ -76,3 +76,12 @@ test('3D leaf settings: colours, scale and the most leaves are checked', () => {
     assert.equal(normalizeTree3dParameters({ maxLeaves: 0 }).maxLeaves, 1);
     assert.equal(DEFAULT_TREE3D_PARAMETERS.maxLeaves, 15);
 });
+
+test('3D VIP leaf settings: golds only, a VIP scale and the gold glow', () => {
+    assert.deepEqual(normalizeTree3dParameters({ vipLeafColor: '#FFD700', vipLeafScale: 1.4, vipGlow: false }),
+        { vipLeafColor: '#ffd700', vipLeafScale: 1.4, vipGlow: false });
+    assert.throws(() => normalizeTree3dParameters({ vipLeafColor: '#7cb342' }), { statusCode: 400, message: /VIP leaf colour/ });
+    assert.equal(normalizeTree3dParameters({ vipLeafScale: 0.1 }).vipLeafScale, 0.4);
+    assert.throws(() => normalizeTree3dParameters({ vipGlow: 'on' }), { statusCode: 400 });
+    assert.equal(DEFAULT_TREE3D_PARAMETERS.vipLeafColor, '#d4af37');
+});

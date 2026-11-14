@@ -16,7 +16,8 @@ const DEFAULTS = {
   autoOrbit: true, soundEnabled: false, soundVolume: 78, showSoilPanel: false,
   showWeatherPanel: true, showRiverPanel: true, showControlsBar: true, showYearReview: true,
   gustRequestedAt: '', sunsetRequestedAt: '',
-  showFeedbackLeaves: true, leafNewColor: '#7cb342', leafOldColor: '#1f5f2e', leafSide: 'both', leafNewHours: 24, leafScale: 1, maxLeaves: 15,
+  showFeedbackLeaves: true, leafNewColor: '#7cb342', leafOldColor: '#1f5f2e', leafSide: 'both', leafNewHours: 24,
+  vipLeafColor: '#d4af37', vipLeafScale: 1, vipGlow: true, leafScale: 1, maxLeaves: 15,
   titleBox: {
     showTitleBox: true, titleText: 'ESG Tree', subtitleText: DEFAULT_SUBTITLE,
     opacity: 0.54, blur: 18, radius: 20, position: 'auto', paddingX: 22, paddingY: 12,
