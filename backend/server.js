@@ -150,6 +150,7 @@ function requireMobileTokenForPledgeboard(req, res, next) {
 // Import tree routes and wire them to the shared DB
 const { router: treeRoutes, setDatabase: setTreeDatabase, countLiveTreeLeaves } = require('./features/tree/routes');
 const { withAutoTreeStage } = require('./features/parameters/treeStage');
+const { serveChosenTree } = require('./features/parameters/treeDisplay');
 
 // Import cleanup module
 const dataRetentionCleanup = require('./features/archive/retention');
@@ -189,17 +190,6 @@ function getBindHost() {
     }
 
     return bindHost || '0.0.0.0';
-}
-
-function getActiveTreeDisplayMode() {
-    const config = parametersConfigStore.readParametersConfig();
-    const mode = String(config.treeParameters?.treeDisplayMode || '2d').trim().toLowerCase();
-    return mode === '3d' ? '3d' : '2d';
-}
-
-function sendBlockedTreeRoute(res, activeMode) {
-    const activeRoute = activeMode === '3d' ? '/3dtree' : '/tree';
-    return res.status(403).send(`<p>Tree display is currently set to <a href="${activeRoute}">${activeRoute}</a>.</p>`);
 }
 
 // ==================== 2. NETWORK INTERFACE FUNCTIONS ====================
@@ -568,23 +558,15 @@ app.get(['/tree-demo', '/tree-demo/'], auth.requireAuth, (req, res) => {
     res.sendFile(path.join(paths.FRONTEND, 'tree', 'tree.html'));
 });
 
-// Tree page is selected from admin settings; inactive route returns 403.
-app.get('/tree', (req, res) => {
-    const activeMode = getActiveTreeDisplayMode();
-    if (activeMode !== '2d') {
-        return sendBlockedTreeRoute(res, activeMode);
-    }
+// The 2D or 3D tree, as chosen in the admin's Display 2D/3D Tree: the other address goes straight to the
+// chosen tree (features/parameters/treeDisplay.js).
+app.get('/tree', serveChosenTree('2d', (req, res) => {
     res.sendFile(path.join(paths.FRONTEND, 'tree', 'tree.html'));
-});
+}));
 
-// 3D Tree page is selected from admin settings; inactive route returns 403.
-app.get(['/3dTree', '/3dtree'], (req, res) => {
-    const activeMode = getActiveTreeDisplayMode();
-    if (activeMode !== '3d') {
-        return sendBlockedTreeRoute(res, activeMode);
-    }
+app.get(['/3dTree', '/3dtree'], serveChosenTree('3d', (req, res) => {
     res.sendFile(path.join(paths.FRONTEND, '3dTree', '3dTree.html'));
-});
+}));
 
 app.get('/pulse', (req, res) => {
     res.sendFile(path.join(paths.FRONTEND, 'pulse', 'pulse.html'));

@@ -236,6 +236,11 @@ async function refresh() {
     const response = await fetch('/api/parameters', { cache: 'no-store' });
     const data = await response.json();
     if (!response.ok || !data.success) return;
+    // The admin chose the 2D tree for the wall: go straight to it.
+    if (data.parameters?.treeParameters?.treeDisplayMode === '2d') {
+      window.location.replace(`/tree${window.location.search}`);
+      return;
+    }
     latest = withDefaults(data.parameters?.tree3dParameters);
     // The 3D tree shows the same leaves as the 2D tree (feedback-leaves.js): its "Maximum Visible Leaves"
     // and growth stage come from the 2D tree's settings.

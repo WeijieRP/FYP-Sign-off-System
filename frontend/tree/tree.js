@@ -271,6 +271,7 @@ class TreeManager {
         this.leafShowcaseMs = 12000;
         this.landingStageFreeAt = 0;
         this.leafGlowEpochs = new Map(); // leaf key -> when its glow pulse starts (animationClock() time)
+        this.leafFalls = new Map(); // leaf key -> its fall (playLeafFall), kept so a refresh mid-fall carries on
         this.renderedLeafKeys = new Set();
         this.leafPositions = new Map();
         this.leafLayoutKey = '';
@@ -449,6 +450,11 @@ class TreeManager {
             if (!response.ok || !data.success) return;
 
             const tree = data.parameters?.treeParameters || {};
+            // The admin chose the 3D tree for the wall: go straight to it (not from the admin's demo page).
+            if (!this.isDemoPage && tree.treeDisplayMode === '3d') {
+                window.location.replace(`/3dTree${window.location.search}`);
+                return;
+            }
             const assets = data.parameters?.visualAssets || {};
             const campaign = data.parameters?.campaignSettings || {};
             const badgeLeafStyles = data.parameters?.badgeLeafStyles || {};
@@ -2339,6 +2345,7 @@ class TreeManager {
 
         leaves.forEach(leaf => {
             leaf.classList.add('leaf-falling');
+            this.playLeafFall(leaf);
         });
 
         if (this.leafFallStarted && this.leafFallCycleNumber === leafCycle.cycleNumber) return;
@@ -2361,10 +2368,76 @@ class TreeManager {
             leaves.forEach(leaf => {
                 leaf.classList.remove('leaf-falling');
                 leaf.classList.add('leaf-fallen', 'leaf-cleared');
+                this.leafFalls.delete(leaf.dataset.leafKey);
             });
             this.leafFallStarted = false;
             this.leafGreenTimer = null;
         }, clearDelay);
+    }
+
+    // The oldest leaf drops off the tree smoothly, like a real leaf flowing down: it lets go gently,
+    // drifts out to its own side of the tree first and then mostly down in one smooth curve (never back,
+    // no zigzag), gliding fastest in the middle and settling softly, while it turns slowly, rocks softly,
+    // shrinks a little and fades away near the ground. Every movement starts and ends at rest, and the
+    // whole fall is one animation pinned to its start time, so a refresh mid-fall carries on unchanged.
+    // It takes the admin's Leaf Fall Duration (leafFallDuration).
+    playLeafFall(leaf) {
+        const leafKey = leaf.dataset.leafKey;
+        if (!leafKey || typeof leaf.animate !== 'function' || leaf.dataset.fallPlaying === '1') return;
+        leaf.dataset.fallPlaying = '1'; // this element already falls (a rebuilt one carries on from the same start)
+        const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+            && !document.body.classList.contains('tree-demo-motion-active');
+        if (reduceMotion) return;
+
+        let fall = this.leafFalls.get(leafKey);
+        if (!fall) {
+            fall = this.planLeafFall(leaf, leafKey);
+            fall.startedAt = this.animationClock() + (Number(leaf.dataset.fallDelay) || 0);
+            this.leafFalls.set(leafKey, fall);
+        }
+        const animation = leaf.animate(fall.keyframes, { duration: fall.duration, easing: 'linear', fill: 'forwards' });
+        animation.startTime = fall.startedAt;
+    }
+
+    planLeafFall(leaf, leafKey) {
+        const random = this.createSeededRandom(`${leafKey}|fall`);
+        const duration = Math.max(1200, Number(this.leafFallDuration) || 4200);
+        const containerWidth = this.leavesContainer?.clientWidth || window.innerWidth || 1920;
+        const leafCentre = (parseFloat(leaf.style.left) || 0) + ((leaf.offsetWidth || 80) / 2);
+        const side = leafCentre >= containerWidth / 2 ? 1 : -1; // drifts out, away from the trunk
+        const distance = Math.round(Math.max(360, Math.min(window.innerHeight * (0.5 + (random() * 0.32)), 760)));
+        const drift = side * (80 + (random() * 150));
+        const turn = side * (20 + (random() * 30));   // degrees, a slow turn over the whole fall
+        const rock = 5 + (random() * 5);              // degrees, a soft rock about once on the way down
+        const tilt = (random() - 0.5) * 24;           // degrees, tipping back a little
+        const endScale = 0.76 + (random() * 0.1);
+        const phase = random() * Math.PI * 2;
+        const opacityValue = Number(this.leafOpacity);
+        const visibleOpacity = Number.isFinite(opacityValue) ? opacityValue : 0.9;
+        const smoothstep = (edge0, edge1, value) => {
+            const k = Math.min(1, Math.max(0, (value - edge0) / (edge1 - edge0)));
+            return k * k * (3 - (2 * k));
+        };
+
+        const steps = Math.max(60, Math.round(duration / 50));
+        const keyframes = [];
+        for (let step = 0; step <= steps; step += 1) {
+            const t = step / steps;
+            const down = (1 - Math.cos(Math.PI * t)) / 2; // from rest, fastest in the middle, to rest
+            const out = smoothstep(0, 0.8, t);            // out first, then mostly down
+            const x = drift * out;
+            const y = distance * down;
+            const rotate = (turn * down) + (rock * Math.sin((Math.PI * 1.6 * t) + phase) * Math.sin(Math.PI * t));
+            const rotateX = tilt * Math.sin(Math.PI * t);
+            const scale = 1 + ((endScale - 1) * down);
+            const opacity = visibleOpacity * (1 - smoothstep(0.68, 1, t));
+            keyframes.push({
+                offset: t,
+                opacity: Number(opacity.toFixed(3)),
+                transform: `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, 0px) rotate(${rotate.toFixed(2)}deg) rotateX(${rotateX.toFixed(2)}deg) scale(${scale.toFixed(4)})`
+            });
+        }
+        return { duration, keyframes };
     }
 
     findRandomPositionInOval(ovalArea, leafSize, seed) {

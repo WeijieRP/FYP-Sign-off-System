@@ -929,8 +929,10 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
   function placeFall(leaf, time) {
     const f = leaf.fall;
     const t = Math.min(1, (time - f.began) / f.duration);
-    const down = (1 - Math.cos(Math.PI * t)) / 2; // lets go gently, glides, settles softly
-    const out = Math.sin((Math.PI / 2) * t);      // drifts out quickly at first, then slows (never back)
+    // Every movement starts from rest and ends at rest, so the leaf flows down without a jerk: it drifts out
+    // first and then mostly down (one smooth curve, never back), gliding fastest in the middle.
+    const down = (1 - Math.cos(Math.PI * t)) / 2;
+    const out = smoothstep(0, 0.8, t);
     leaf.mesh.position.set(
       f.from.x + f.drift.x * out,
       T.MathUtils.lerp(f.from.y, f.ground, down),

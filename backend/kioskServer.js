@@ -115,6 +115,7 @@ const parametersConfigStore = require('./features/parameters/store');
 
 const { router: treeRoutes, setDatabase: setTreeDatabase, countLiveTreeLeaves } = require('./features/tree/routes');
 const { withAutoTreeStage } = require('./features/parameters/treeStage');
+const { serveChosenTree } = require('./features/parameters/treeDisplay');
 const dataRetentionCleanup = require('./features/archive/retention');
 const QRCode = require('qrcode');
 
@@ -381,13 +382,15 @@ app.get('/pledgeboard', (req, res) => {
   res.sendFile(path.join(paths.FRONTEND, 'Pledgeboard', 'Pledgeboard.html'));
 });
 
-app.get('/tree', (req, res) => {
+// The 2D or 3D tree, as chosen in the admin's Display 2D/3D Tree: the other address goes straight to the
+// chosen tree (features/parameters/treeDisplay.js).
+app.get('/tree', serveChosenTree('2d', (req, res) => {
   res.sendFile(path.join(paths.FRONTEND, 'tree', 'tree.html'));
-});
+}));
 
-app.get('/3dTree', (req, res) => {
+app.get('/3dTree', serveChosenTree('3d', (req, res) => {
   res.sendFile(path.join(paths.FRONTEND, '3dTree', '3dTree.html'));
-});
+}));
 
 app.get('/pulse', (req, res) => {
   res.sendFile(path.join(paths.FRONTEND, 'pulse', 'pulse.html'));

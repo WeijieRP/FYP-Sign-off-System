@@ -74,12 +74,15 @@ export function createFallingLeaves(scene,model,data,random,waterRise,onWaterEnt
         const age=time-leaf.at, t=Math.min(1,age/leaf.duration);
         const flutter=Math.sin(Math.PI*t);
         if (leaf.state==='falling') {
+          // Flows down smoothly: lets go gently, glides and settles softly, in one slow, wide sway (no
+          // zigzag), rocking a little and turning slowly.
           const landing=leaf.direct?route.entry:route.land;
-          mesh.position.lerpVectors(route.start,landing,t);
-          mesh.position.y=T.MathUtils.lerp(route.start.y,landing.y+(leaf.direct?rise:0),t**1.11);
-          mesh.position.x+=Math.sin(age*2.5+spin)*.38*flutter;
-          mesh.position.z+=Math.cos(age*2.2+spin)*.23*flutter;
-          mesh.rotation.set(Math.sin(age*5+spin)*flutter,spin+t*Math.PI*2,Math.cos(age*4.6)*flutter);
+          const glide=(1-Math.cos(Math.PI*t))/2;
+          mesh.position.lerpVectors(route.start,landing,T.MathUtils.smoothstep(t,0,1));
+          mesh.position.y=T.MathUtils.lerp(route.start.y,landing.y+(leaf.direct?rise:0),glide);
+          mesh.position.x+=Math.sin(spin)*.34*flutter;
+          mesh.position.z+=Math.cos(spin)*.2*flutter;
+          mesh.rotation.set(.32*Math.sin(Math.PI*1.4*t+spin)*flutter,spin+glide*Math.PI*.6,.24*Math.cos(Math.PI*1.2*t)*flutter);
           if (t===1) {
             if (leaf.direct) enterWater(leaf,time);
             else change(leaf,'grounded',time);
