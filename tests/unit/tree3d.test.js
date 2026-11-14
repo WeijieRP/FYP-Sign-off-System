@@ -87,3 +87,27 @@ test('3D VIP leaf settings: golds only, a VIP scale and the gold glow', () => {
     assert.throws(() => normalizeTree3dParameters({ vipGlow: 'on' }), { statusCode: 400 });
     assert.equal(DEFAULT_TREE3D_PARAMETERS.vipLeafColor, '#d4af37');
 });
+
+test('the 3D Tree Visualization Parameters are kept within their ranges', () => {
+    const saved = normalizeTree3dParameters({
+        leafAreaWidth: 10, leafAreaHeight: 75.4, leafAreaOffset: -90, leafRefreshMs: 1000, leafOpacity: 0.456,
+        leafAppearMs: 900, leafShowcaseSeconds: 12.34, leafFloatMs: 50000, leafFallMs: 4200, badgeColours: 'true'
+    });
+    assert.deepEqual(saved, {
+        leafAreaWidth: 30, leafAreaHeight: 75, leafAreaOffset: -40, leafRefreshMs: 5000, leafOpacity: 0.46,
+        leafAppearMs: 900, leafShowcaseSeconds: 12.3, leafFloatMs: 20000, leafFallMs: 4200, badgeColours: true
+    });
+    assert.throws(() => normalizeTree3dParameters({ leafFallMs: 'slow' }), /Leaf fall duration must be a number/);
+});
+
+test('badge leaf colours take any colour for the known badges and keep the rest', () => {
+    const saved = normalizeTree3dParameters({ badgeLeafColors: { 'ocean-guardian': '#00AAFF', 'unknown-badge': '#123456' } });
+    assert.deepEqual(saved.badgeLeafColors, { 'ocean-guardian': '#00aaff' });
+    assert.throws(() => normalizeTree3dParameters({ badgeLeafColors: { 'ocean-guardian': 'blue' } }), /badge colour/);
+    const merged = mergeTree3dParameters({ badgeLeafColors: { 'climate-champion': '#111111' } }, saved);
+    assert.equal(merged.badgeLeafColors['ocean-guardian'], '#00aaff');
+    assert.equal(merged.badgeLeafColors['climate-champion'], '#111111');
+    assert.equal(merged.badgeLeafColors['feedback-completer'], DEFAULT_TREE3D_PARAMETERS.badgeLeafColors['feedback-completer']);
+    assert.equal(merged.badgeColours, false);
+    assert.equal(merged.leafShowcaseSeconds, 12);
+});

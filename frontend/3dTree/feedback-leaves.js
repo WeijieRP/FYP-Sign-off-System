@@ -95,7 +95,18 @@ const NAME_FONT_PX = 64;          // canvas pixels per font size
 const NAME_LIFT = 0.0006;        // how far the name sits off the leaf surface, towards the viewer
 const GOLD_GLOW = new T.Color(0xffd23f); // the 2D VIP leaf's gold glow (vipGoldPulse in tree.css)
 
+// The admin's 3D Tree Visualization Parameters (the 2D tree's, for the 3D tree) can change the timings
+// above: POLL_MS (leafRefreshMs), APPEAR_MS (leafAppearMs), SHOWCASE_MS (leafShowcaseSeconds), FLOAT_MS
+// (leafFloatMs) and FALL_MS (leafFallMs); also the leaf area, opacity and badge colours.
+const BADGE_LEAF_COLOURS = { // the 2D tree's default badge colours
+  'feedback-completer': '#4a7c59', 'climate-champion': '#0f766e', 'renewable-innovator': '#f59e0b',
+  'sustainable-living-advocate': '#16a34a', 'ocean-guardian': '#0284c7', 'governance-guardian': '#7c3aed',
+  'social-champion': '#d97706',
+};
 const DEFAULTS = { showFeedbackLeaves: true, leafNewColor: '#7cb342', leafOldColor: '#1f5f2e', leafSide: 'both', leafNewHours: 24, leafScale: 1, showLeafNames: true,
+  leafAreaWidth: 100, leafAreaHeight: 100, leafAreaOffset: 0, leafRefreshMs: POLL_MS, leafOpacity: 1,
+  leafAppearMs: APPEAR_MS, leafShowcaseSeconds: SHOWCASE_MS / 1000, leafFloatMs: FLOAT_MS, leafFallMs: FALL_MS,
+  badgeColours: false, badgeLeafColors: BADGE_LEAF_COLOURS,
   tree2d: { leafFallThreshold: 15, treeStage: 4 },
   vipLeafColor: '#d4af37', vipLeafScale: 1, vipGlow: true };
 
@@ -303,6 +314,7 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
   let settings = { ...DEFAULTS };
   let model = null;                // { geometry, texture }
   let anchors = [];
+  let canopyBox = null;            // the canopy's extent, for the admin's leaf area
   let mode = { live: true, year: null };
   let requestId = 0;
   let vipNames = new Set();         // names on the admin's VIP Management list
@@ -322,19 +334,39 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
     }
     model = { geometry: mesh.geometry, texture, normalMap };
     anchors = canopyAnchors(tree).anchors;
+    canopyBox = anchors.length ? new T.Box3().setFromPoints(anchors.map(anchor => anchor.position)) : null;
     refresh();
-    window.setInterval(() => { if (mode.live) refresh(); }, POLL_MS);
+    // Checks for new feedback every leafRefreshMs (the admin's Leaf Refresh Interval; 5 seconds by default).
+    const poll = () => window.setTimeout(() => { if (mode.live) refresh(); poll(); }, timing().refresh);
+    poll();
   }).catch(error => console.warn('Feedback leaves could not be loaded; the tree shows without them.', error));
+
+  // The timings from the admin's 3D Tree Visualization Parameters, within safe limits.
+  const within = (value, fallback, min, max) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
+  };
+  function timing() {
+    return {
+      refresh: within(settings.leafRefreshMs, POLL_MS, 5000, 120000),
+      appear: within(settings.leafAppearMs, APPEAR_MS, 100, 5000),
+      showcase: within(Number(settings.leafShowcaseSeconds) * 1000, SHOWCASE_MS, 0, 30000),
+      float: within(settings.leafFloatMs, FLOAT_MS, 2000, 20000),
+      fall: within(settings.leafFallMs, FALL_MS, 500, 10000),
+    };
+  }
 
   onTree3dSettings(next => {
     const before = JSON.stringify(settings.tree2d);
-    const sizeBefore = [settings.leafScale, settings.vipLeafScale].join('|');
-    settings = { ...DEFAULTS, ...next, tree2d: { ...DEFAULTS.tree2d, ...(next.tree2d || {}) } };
+    const placing = s => [s.leafScale, s.vipLeafScale, s.leafAreaWidth, s.leafAreaHeight, s.leafAreaOffset].join('|');
+    const sizeBefore = placing(settings);
+    settings = { ...DEFAULTS, ...next, tree2d: { ...DEFAULTS.tree2d, ...(next.tree2d || {}) },
+      badgeLeafColors: { ...BADGE_LEAF_COLOURS, ...(next.badgeLeafColors || {}) } };
     group.visible = settings.showFeedbackLeaves !== false;
     for (const leaf of leaves.values()) tintLeaf(leaf);
     if (!model) return;
-    if ([settings.leafScale, settings.vipLeafScale].join('|') !== sizeBefore) {
-      // A new leaf size: space the leaves out again for it, so bigger leaves do not overlap.
+    if (placing(settings) !== sizeBefore) {
+      // A new leaf size or leaf area: place the leaves again for it, so they fit and do not overlap.
       for (const leaf of leaves.values()) removeLeaf(leaf);
       leaves.clear();
       placed.clear();
@@ -448,16 +480,31 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
 
   // ---------- leaves ----------
 
+  // The admin's leaf area (2D: Leaf Canopy Width, Height and Top Offset): the middle part of the canopy,
+  // as wide and as tall as the given shares of it, moved up (negative offset) or down. All of it by default.
+  function inLeafArea(position) {
+    const width = within(settings.leafAreaWidth, 100, 30, 100) / 100;
+    const height = within(settings.leafAreaHeight, 100, 30, 100) / 100;
+    const offset = within(settings.leafAreaOffset, 0, -40, 40) / 100;
+    if (!canopyBox || (width >= 1 && height >= 1 && offset === 0)) return true;
+    const size = canopyBox.getSize(new T.Vector3());
+    const centre = canopyBox.getCenter(new T.Vector3());
+    centre.y -= offset * size.y;
+    return Math.abs(position.x - centre.x) <= width * size.x / 2 && Math.abs(position.y - centre.y) <= height * size.y / 2;
+  }
+
   function spotFor(key) {
     if (placed.has(key)) return placed.get(key);
     const random = seededRandom(`${key}|spot`);
     const size = BASE_SIZE * Math.max(1, settings.leafScale, settings.vipLeafScale);
     const toCamera = new T.Vector3();
-    // Prefer spots facing the viewer, so the leaves are seen; any spot if too few face this way. Among
-    // those, prefer spots on screen and clear of the title box.
-    const facing = anchors.filter(anchor => anchor.outward.dot(toCamera.subVectors(camera.position, anchor.position).normalize()) > 0.2);
+    // Only spots in the admin's leaf area (if it leaves enough of the canopy). Among those, prefer spots
+    // facing the viewer, so the leaves are seen, and then spots on screen and clear of the title box.
+    const inArea = anchors.filter(anchor => inLeafArea(anchor.position));
+    const area = inArea.length > 40 ? inArea : anchors;
+    const facing = area.filter(anchor => anchor.outward.dot(toCamera.subVectors(camera.position, anchor.position).normalize()) > 0.2);
     const seen = facing.filter(anchor => seenOnScreen(anchor.position, size));
-    const pool = seen.length > 40 ? seen : facing.length > 40 ? facing : anchors;
+    const pool = seen.length > 40 ? seen : facing.length > 40 ? facing : area;
     if (!pool.length) return null;
     const taken = [...leaves.values()].filter(leaf => leaf.state !== 'falling').map(leaf => shownSpot(leaf, leaf.shown).position);
     // How far apart two spots look to the viewer: their distance across the view, leaving out depth.
@@ -629,12 +676,18 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
     return (BASE_SIZE / MODEL_SIZE) * (scale || 1);
   }
 
-  // New leaves in the new colour, older ones in the older colour (2D: New / Old leaf pictures).
+  // New leaves in the new colour, older ones in the older colour (2D: New / Old leaf pictures). With the
+  // admin's badge colours on, a new leaf takes its badge's colour instead (2D: Badge Leaf Styling).
+  function badgeColour(visitor) {
+    const key = visitor?.badgeKey || 'feedback-completer';
+    return settings.badgeLeafColors?.[key] || visitor?.badgeColor || BADGE_LEAF_COLOURS[key] || settings.leafNewColor;
+  }
   function tintLeaf(leaf, immediate = false) {
     const created = timeOf(leaf.visitor?.created_at);
     const newForMs = (Number(settings.leafNewHours) || 0) * 3600 * 1000;
     const isNew = created !== null && Date.now() - created <= newForMs;
-    const colour = leaf.isVip ? settings.vipLeafColor : (isNew ? settings.leafNewColor : settings.leafOldColor);
+    const newColour = settings.badgeColours === true ? badgeColour(leaf.visitor) : settings.leafNewColor;
+    const colour = leaf.isVip ? settings.vipLeafColor : (isNew ? newColour : settings.leafOldColor);
     leaf.targetColour = displayColour(colour);
     if (immediate) leaf.colour.copy(leaf.targetColour);
   }
@@ -666,16 +719,17 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
 
   function startFlight(leaf, order) {
     const random = seededRandom(`${leaf.key}|flight`);
+    const { appear, showcase, float } = timing(); // the admin's timings when this leaf arrives
     const appearAt = Math.max(now() + order * 250, stageFreeAt);
-    stageFreeAt = appearAt + SHOWCASE_MS + STAGE_CLEAR_MS;
+    stageFreeAt = appearAt + showcase + STAGE_CLEAR_MS;
     // Level means its midrib across the screen, pointing right or left, whichever is nearer its resting angle.
     camera.updateMatrixWorld();
     const midrib = new T.Vector3(1, 0, 0).applyQuaternion(leaf.shown.quaternion);
     const right = new T.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
     leaf.flight = {
-      appearAt,
+      appearAt, appear, showcase,
       levelSign: midrib.dot(right) >= 0 ? 1 : -1,
-      duration: FLOAT_MS + random() * 1200,
+      duration: float * (1 + random() * 0.17),          // 7.2 to 8.4 seconds by default
       swings: 4 + random() * 1.2,                       // side-to-side swings on the way up
       side: random() > 0.5 ? 1 : -1,                    // which way the first swing goes
       reach: 0.22 + random() * 0.08,                    // how far the swings go, of half the view's width
@@ -729,12 +783,13 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
     const toRest = Math.atan2(turnSense.crossVectors(level, restMidrib).dot(viewForward), level.dot(restMidrib));
 
     const since = time - f.appearAt;
-    if (since < SHOWCASE_MS) {
+    if (since < f.showcase) {
       // At the bottom middle: fading in as it rises a little into place, then drifting gently, name level.
       // The drift calms to nothing before it floats up, so the float starts from exactly here.
       const shown = Math.max(0, since);
-      const appear = smoothstep(0, APPEAR_MS, shown);
-      const idle = smoothstep(0, 1200, shown) * (1 - smoothstep(SHOWCASE_MS - 1200, SHOWCASE_MS, shown));
+      const appear = smoothstep(0, f.appear, shown);
+      const settle = Math.max(1, Math.min(1200, f.showcase / 2));
+      const idle = smoothstep(0, settle, shown) * (1 - smoothstep(f.showcase - settle, f.showcase, shown));
       const seconds = shown / 1000;
       leaf.mesh.position.copy(start)
         .addScaledVector(viewUp, startHalf * (0.07 * Math.sin(seconds * 1.9 + f.drift) * idle - 0.25 * (1 - appear)))
@@ -747,7 +802,7 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
       return;
     }
 
-    const t = Math.min(1, (since - SHOWCASE_MS) / f.duration);
+    const t = Math.min(1, (since - f.showcase) / f.duration);
     const s = flightEase(t);            // the way up: gentle start, long soft arrival
     const swing = Math.PI * f.swings * t; // a steady rhythm, as a falling leaf's
     const calm = (1 - s) ** 1.3;          // the swings die away as it arrives
@@ -766,7 +821,8 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
     // Twice its size at the start, shrinking smoothly to its size on the tree.
     leaf.mesh.scale.setScalar(leaf.scale * (1 + (1 - s) ** 1.4));
     leaf.mesh.scale.x *= sideSign(leaf);
-    leaf.material.opacity = T.MathUtils.lerp(1, facingAmount(leaf), smoothstep(0.8, 1, s));
+    // (Fading in here too when the admin sets no time at the bottom middle.)
+    leaf.material.opacity = smoothstep(0, f.appear, since) * T.MathUtils.lerp(1, facingAmount(leaf), smoothstep(0.8, 1, s));
     if (t >= 1) {
       leaf.state = 'resting';
       leaf.restingSince = time;
@@ -803,6 +859,7 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
     const random = seededRandom(`${leaf.key}|fall`);
     leaf.fall = {
       began: now(),
+      duration: timing().fall,       // the admin's Leaf Fall Duration (4.2 seconds by default)
       from: leaf.mesh.position.clone(),
       fromQuaternion: leaf.mesh.quaternion.clone(),
       ground: tree.position.y + 0.15,
@@ -817,7 +874,7 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
 
   function placeFall(leaf, time) {
     const f = leaf.fall;
-    const t = Math.min(1, (time - f.began) / FALL_MS);
+    const t = Math.min(1, (time - f.began) / f.duration);
     const drop = t ** 1.6;
     leaf.mesh.position.set(
       f.from.x + f.drift.x * t + Math.sin(t * Math.PI * 3) * f.sway * (1 - t),
@@ -869,6 +926,7 @@ export function addFeedbackLeaves({ scene, tree, clock, camera, renderer }) {
         placeAtRest(leaf, elapsed);
         leaf.material.opacity = facingAmount(leaf);
       }
+      leaf.material.opacity *= within(settings.leafOpacity, 1, 0.1, 1); // the admin's Leaf Opacity (2D: leafOpacity)
 
       // A new visitor's green glow comes first (as on the 2D tree); otherwise a VIP leaf pulses gold.
       const glow = leaf.state === 'resting' ? glowAmount(leaf, time) : 0;

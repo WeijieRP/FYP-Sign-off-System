@@ -1259,6 +1259,97 @@
 
                         <br>
 
+                        <!-- 3D Tree Visualization Parameters: the 2D tree's Visualization Parameters for the 3D tree, saved in
+                             tree3dParameters (Maximum Visible Leaves stays shared with the 2D tree in treeParameters). -->
+                        <div class="tree-adjustment-section">
+                            <div class="section-header">
+                                <h3>3D Tree Visualization Parameters</h3>
+                                <div style="display:flex; gap:10px; align-items:center;">
+                                    <button class="btn-primary" onclick="saveTree3dVisualization()">Save Visualization</button>
+                                    <button class="btn-primary" onclick="resetTree3dVisualization()">Reset to Defaults</button>
+                                </div>
+                            </div>
+                            <div class="section-body">
+                                <p style="font-size:12px; color:#666; margin:0 0 14px;">Leaf placement and animation on the 3D tree, as the 2D tree's Visualization Parameters. The /3dTree screen applies a saved change within about 5 seconds; changing the leaf area places the leaves again.</p>
+                                <div style="font-weight:600; color:#334155; margin-bottom:8px;">Leaf area on the canopy</div>
+                                <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap:14px 24px; margin-bottom:18px;">
+                                    <div>
+                                        <label for="tree3d-leafAreaWidth" style="display:block; font-weight:600; color:#334155; margin-bottom:4px;">Leaf area width</label>
+                                        <div style="display:flex; align-items:center; gap:10px;">
+                                            <input type="range" id="tree3d-leafAreaWidth" min="30" max="100" step="5" value="100" oninput="updateTree3dVisualLabels()">
+                                            <output id="tree3d-leafAreaWidthValue">100%</output>
+                                        </div>
+                                        <p style="font-size:12px; color:#666; margin-top:6px;">How much of the canopy's width leaves can appear on (2D: Leaf Canopy Width).</p>
+                                    </div>
+                                    <div>
+                                        <label for="tree3d-leafAreaHeight" style="display:block; font-weight:600; color:#334155; margin-bottom:4px;">Leaf area height</label>
+                                        <div style="display:flex; align-items:center; gap:10px;">
+                                            <input type="range" id="tree3d-leafAreaHeight" min="30" max="100" step="5" value="100" oninput="updateTree3dVisualLabels()">
+                                            <output id="tree3d-leafAreaHeightValue">100%</output>
+                                        </div>
+                                        <p style="font-size:12px; color:#666; margin-top:6px;">How much of the canopy's height (2D: Leaf Canopy Height).</p>
+                                    </div>
+                                    <div>
+                                        <label for="tree3d-leafAreaOffset" style="display:block; font-weight:600; color:#334155; margin-bottom:4px;">Leaf area up or down</label>
+                                        <div style="display:flex; align-items:center; gap:10px;">
+                                            <input type="range" id="tree3d-leafAreaOffset" min="-40" max="40" step="5" value="0" oninput="updateTree3dVisualLabels()">
+                                            <output id="tree3d-leafAreaOffsetValue">0%</output>
+                                        </div>
+                                        <p style="font-size:12px; color:#666; margin-top:6px;">Negative moves the area up (2D: Canopy Top Offset).</p>
+                                    </div>
+                                </div>
+                                <div style="font-weight:600; color:#334155; margin-bottom:8px;">Leaves and animation</div>
+                                <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap:14px 24px; margin-bottom:18px;">
+                                    <div>
+                                        <label for="tree3d-leafRefreshMs" style="display:block; font-weight:600; color:#334155; margin-bottom:4px;">Leaf refresh interval (milliseconds)</label>
+                                        <input type="number" id="tree3d-leafRefreshMs" min="5000" max="120000" step="1000" value="5000" style="width:120px;">
+                                        <p style="font-size:12px; color:#666; margin-top:6px;">How often the 3D tree checks for new feedback (5000 = 5 seconds).</p>
+                                    </div>
+                                    <div>
+                                        <label for="tree3d-leafOpacity" style="display:block; font-weight:600; color:#334155; margin-bottom:4px;">Leaf opacity</label>
+                                        <div style="display:flex; align-items:center; gap:10px;">
+                                            <input type="range" id="tree3d-leafOpacity" min="0.1" max="1" step="0.05" value="1" oninput="updateTree3dVisualLabels()">
+                                            <output id="tree3d-leafOpacityValue">1.00</output>
+                                        </div>
+                                        <p style="font-size:12px; color:#666; margin-top:6px;">1 = fully opaque; the names fade with the leaves.</p>
+                                    </div>
+                                    <div>
+                                        <label for="tree3d-maxVisibleLeaves" style="display:block; font-weight:600; color:#334155; margin-bottom:4px;">Maximum Visible Leaves</label>
+                                        <input type="number" id="tree3d-maxVisibleLeaves" min="1" max="500" step="1" value="15" style="width:120px;">
+                                        <p style="font-size:12px; color:#666; margin-top:6px;">Shared with the 2D tree. Past it, the oldest leaf falls on both trees.</p>
+                                    </div>
+                                    <div>
+                                        <label for="tree3d-leafAppearMs" style="display:block; font-weight:600; color:#334155; margin-bottom:4px;">Leaf appear duration (milliseconds)</label>
+                                        <input type="number" id="tree3d-leafAppearMs" min="100" max="5000" step="100" value="900" style="width:120px;">
+                                        <p style="font-size:12px; color:#666; margin-top:6px;">How long a new leaf takes to fade in at the bottom middle (2D: Leaf Animation Duration).</p>
+                                    </div>
+                                    <div>
+                                        <label for="tree3d-leafShowcaseSeconds" style="display:block; font-weight:600; color:#334155; margin-bottom:4px;">Time at the bottom middle (seconds)</label>
+                                        <input type="number" id="tree3d-leafShowcaseSeconds" min="0" max="30" step="1" value="12" style="width:120px;">
+                                        <p style="font-size:12px; color:#666; margin-top:6px;">How long a new leaf stays at the bottom middle of the screen before floating up to the tree.</p>
+                                    </div>
+                                    <div>
+                                        <label for="tree3d-leafFloatMs" style="display:block; font-weight:600; color:#334155; margin-bottom:4px;">Float-up duration (milliseconds)</label>
+                                        <input type="number" id="tree3d-leafFloatMs" min="2000" max="20000" step="500" value="7200" style="width:120px;">
+                                        <p style="font-size:12px; color:#666; margin-top:6px;">How long a new leaf takes to float up and settle on the tree.</p>
+                                    </div>
+                                    <div>
+                                        <label for="tree3d-leafFallMs" style="display:block; font-weight:600; color:#334155; margin-bottom:4px;">Leaf fall duration (milliseconds)</label>
+                                        <input type="number" id="tree3d-leafFallMs" min="500" max="10000" step="100" value="4200" style="width:120px;">
+                                        <p style="font-size:12px; color:#666; margin-top:6px;">How long the oldest leaf takes to fall (2D: Leaf Fall Duration).</p>
+                                    </div>
+                                </div>
+                                <div style="font-weight:600; color:#334155; margin-bottom:8px;">Badge leaf styling</div>
+                                <label style="display:flex; align-items:center; gap:10px; font-weight:600; color:#334155; margin-bottom:6px;">
+                                    <input type="checkbox" id="tree3d-badgeColours"> Colour new leaves by their badge (as the 2D tree)
+                                </label>
+                                <p style="font-size:12px; color:#666; margin:0 0 12px;">Off: new leaves are the light green from 3D Leaf Adjustments. On: a new leaf takes its badge's colour below, for as long as it counts as new; older leaves stay dark green and VIP leaves gold. The leaf size is the Leaf scale in 3D Leaf Adjustments.</p>
+                                <div id="tree3d-badgeColours-list" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap:10px 18px;"></div>
+                            </div>
+                        </div>
+
+                        <br>
+
                         <div class="tree-adjustment-section">
                             <div class="section-header">
                                 <h3>3D Scene Controls</h3>

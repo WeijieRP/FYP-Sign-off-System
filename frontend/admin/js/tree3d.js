@@ -77,6 +77,33 @@ const TREE3D_VIP_DEFAULTS = {
     vipGlow: true
 };
 
+// 3D Tree Visualization Parameters: the 2D tree's Visualization Parameters for the 3D tree
+// (frontend/3dTree/feedback-leaves.js). Maximum Visible Leaves stays the 2D tree's, shared by both trees.
+const TREE3D_VISUAL_DEFAULTS = {
+    leafAreaWidth: 100,
+    leafAreaHeight: 100,
+    leafAreaOffset: 0,
+    leafRefreshMs: 5000,
+    leafOpacity: 1,
+    leafAppearMs: 900,
+    leafShowcaseSeconds: 12,
+    leafFloatMs: 7200,
+    leafFallMs: 4200,
+    badgeColours: false
+};
+const TREE3D_VISUAL_NUMBERS = ['leafAreaWidth', 'leafAreaHeight', 'leafAreaOffset', 'leafRefreshMs', 'leafOpacity',
+    'leafAppearMs', 'leafShowcaseSeconds', 'leafFloatMs', 'leafFallMs'];
+// The badges, with the 2D tree's default colours (Badge Leaf Styling).
+const TREE3D_BADGES = [
+    ['feedback-completer', 'Feedback Contributor', '#4a7c59'],
+    ['climate-champion', 'Climate Champion', '#0f766e'],
+    ['renewable-innovator', 'Renewable Innovator', '#f59e0b'],
+    ['sustainable-living-advocate', 'Sustainable Living Advocate', '#16a34a'],
+    ['ocean-guardian', 'Ocean Guardian', '#0284c7'],
+    ['governance-guardian', 'Governance Guardian', '#7c3aed'],
+    ['social-champion', 'Social Champion', '#d97706']
+];
+
 // The rain areas the 3D page lists come from the same public Singapore feed.
 const TREE3D_AREA_FEED = 'https://api-open.data.gov.sg/v2/real-time/api/two-hr-forecast';
 
@@ -266,6 +293,16 @@ function fillTree3dForm(settings) {
     tree3dField('vipLeafScale').value = vip.vipLeafScale;
     tree3dField('vipGlow').checked = vip.vipGlow !== false;
 
+    const visual = { ...TREE3D_VISUAL_DEFAULTS, ...(settings || {}) };
+    renderTree3dBadgeColours();
+    if (tree3dField('leafAreaWidth')) {
+        TREE3D_VISUAL_NUMBERS.forEach(key => { tree3dField(key).value = visual[key]; });
+        tree3dField('badgeColours').checked = visual.badgeColours === true;
+        const colours = settings?.badgeLeafColors || {};
+        TREE3D_BADGES.forEach(([key, , fallback]) => { tree3dField(`badgeColour-${key}`).value = colours[key] || fallback; });
+        updateTree3dVisualLabels();
+    }
+
     tree3dField('showTitleBox').checked = box.showTitleBox !== false;
     tree3dField('titleText').value = box.titleText;
     tree3dField('subtitleText').value = box.subtitleText;
@@ -311,6 +348,7 @@ function collectTree3dSettings() {
         vipLeafColor: tree3dField('leafVipColor').value,
         vipLeafScale: Number(tree3dField('vipLeafScale').value) || TREE3D_VIP_DEFAULTS.vipLeafScale,
         vipGlow: tree3dField('vipGlow').checked,
+        ...collectTree3dVisual(),
         titleBox: {
             showTitleBox: tree3dField('showTitleBox').checked,
             titleText: tree3dField('titleText').value,
@@ -350,8 +388,92 @@ async function saveTree3dSettings() {
 
 // Each section's Reset only resets that section.
 function tree3dLeafValues(settings) {
-    const keys = [...Object.keys(TREE3D_LEAF_DEFAULTS), ...Object.keys(TREE3D_VIP_DEFAULTS)];
+    const keys = [...Object.keys(TREE3D_LEAF_DEFAULTS), ...Object.keys(TREE3D_VIP_DEFAULTS),
+        ...Object.keys(TREE3D_VISUAL_DEFAULTS), 'badgeLeafColors'];
     return Object.fromEntries(keys.map(key => [key, settings[key]]));
+}
+
+// ---------- 3D Tree Visualization Parameters ----------
+
+// One colour box per badge, built once from TREE3D_BADGES.
+function renderTree3dBadgeColours() {
+    const list = tree3dField('badgeColours-list');
+    if (!list || list.childElementCount) return;
+    for (const [key, name, colour] of TREE3D_BADGES) {
+        const row = document.createElement('label');
+        row.style.cssText = 'display:flex; align-items:center; gap:10px; color:#334155;';
+        const input = document.createElement('input');
+        input.type = 'color';
+        input.id = `tree3d-badgeColour-${key}`;
+        input.value = colour;
+        input.style.cssText = 'width:42px; height:32px; padding:0; border:1px solid #d1d5db; border-radius:6px; background:#fff;';
+        const text = document.createElement('span');
+        text.textContent = name;
+        row.append(input, text);
+        list.append(row);
+    }
+}
+
+function updateTree3dVisualLabels() {
+    const show = (id, text) => { const output = tree3dField(`${id}Value`); if (output) output.textContent = text; };
+    const value = id => Number(tree3dField(id)?.value);
+    if (!tree3dField('leafAreaWidth')) return;
+    show('leafAreaWidth', `${value('leafAreaWidth')}%`);
+    show('leafAreaHeight', `${value('leafAreaHeight')}%`);
+    const offset = value('leafAreaOffset');
+    show('leafAreaOffset', offset === 0 ? '0%' : `${Math.abs(offset)}% ${offset < 0 ? 'up' : 'down'}`);
+    show('leafOpacity', value('leafOpacity').toFixed(2));
+}
+
+function collectTree3dVisual() {
+    if (!tree3dField('leafAreaWidth')) return {};
+    const values = Object.fromEntries(TREE3D_VISUAL_NUMBERS.map(key => {
+        const number = Number(tree3dField(key).value);
+        return [key, Number.isFinite(number) && tree3dField(key).value !== '' ? number : TREE3D_VISUAL_DEFAULTS[key]];
+    }));
+    return {
+        ...values,
+        badgeColours: tree3dField('badgeColours').checked,
+        badgeLeafColors: Object.fromEntries(TREE3D_BADGES.map(([key, , fallback]) =>
+            [key, tree3dField(`badgeColour-${key}`)?.value || fallback]))
+    };
+}
+
+// Maximum Visible Leaves is the 2D tree's (treeParameters.leafFallThreshold), shared by both trees.
+function showTree3dMaxLeaves(count) {
+    const value = Math.min(500, Math.max(1, Math.round(Number(count)) || 15));
+    if (tree3dField('maxVisibleLeaves')) tree3dField('maxVisibleLeaves').value = value;
+    if (tree3dField('leafCount2d')) tree3dField('leafCount2d').textContent = String(value);
+    const field2d = document.getElementById('param-leafFallThreshold');
+    if (field2d) field2d.value = value;
+    return value;
+}
+
+async function saveTree3dVisualization() {
+    try {
+        const saved = await putTree3dSettings(collectTree3dSettings());
+        if (saved) fillTree3dForm(saved);
+        const leafFallThreshold = showTree3dMaxLeaves(tree3dField('maxVisibleLeaves')?.value);
+        const response = await fetch('/api/admin/parameters/treeParameters', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ leafFallThreshold })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.success) throw new Error(data.error || 'Failed to save Maximum Visible Leaves');
+        showNotification('3D tree visualization saved. The 3D screen updates within a few seconds.', 'success');
+    } catch (error) {
+        console.error('Error saving the 3D tree visualization:', error);
+        showNotification(error.message || 'Failed to save the 3D tree visualization.', 'error');
+    }
+}
+
+// Resets this section's 3D settings; Maximum Visible Leaves stays, as the 2D tree shares it.
+async function resetTree3dVisualization() {
+    const defaults = { ...TREE3D_VISUAL_DEFAULTS, badgeLeafColors: Object.fromEntries(TREE3D_BADGES.map(([key, , colour]) => [key, colour])) };
+    fillTree3dForm({ ...collectTree3dSettings(), ...defaults });
+    await saveTree3dVisualization();
 }
 
 async function resetTree3dSettings() {
@@ -515,8 +637,7 @@ async function loadTree3dSettings() {
         const data = await response.json();
         fillTree3dForm(data.parameters?.tree3dParameters);
         // The 3D tree shows as many leaves as the 2D tree's Maximum Visible Leaves.
-        const count2d = tree3dField('leafCount2d');
-        if (count2d) count2d.textContent = String(Number(data.parameters?.treeParameters?.leafFallThreshold) || 15);
+        showTree3dMaxLeaves(data.parameters?.treeParameters?.leafFallThreshold);
     } catch (error) {
         console.error('Error loading 3D tree settings:', error);
         fillTree3dForm(null);

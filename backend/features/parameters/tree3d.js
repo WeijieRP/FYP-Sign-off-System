@@ -33,6 +33,24 @@
 //   vipLeafColor       VIP leaves' gold (VIP_LEAF_COLOURS); VIPs are the names in the admin's VIP Management
 //   vipLeafScale       size of VIP leaves, 0.4 to 2.5 (2D: vipLeafDisplayScale)
 //   vipGlow            the gold pulse around VIP leaves (2D: vipGoldPulse)
+// 3D Tree Visualization Parameters (the 2D tree's Visualization Parameters, for the 3D tree):
+//   leafAreaWidth, leafAreaHeight
+//                      how much of the canopy new leaves may sit on, 30 to 100 (% of its width and height,
+//                      around its middle; 2D: Leaf Canopy Width and Height)
+//   leafAreaOffset     moves that area up (negative) or down, -40 to 40 (% of the canopy's height;
+//                      2D: Canopy Top Offset)
+//   leafRefreshMs      how often the 3D tree checks for new feedback, 5000 to 120000 ms (2D: Leaf Refresh
+//                      Interval)
+//   leafOpacity        0.1 to 1 (1 = fully opaque; 2D: Leaf Opacity)
+//   leafAppearMs       how long a new leaf takes to fade in at the bottom middle, 100 to 5000 ms (2D: Leaf
+//                      Animation Duration)
+//   leafShowcaseSeconds how long a new leaf stays at the bottom middle before floating up, 0 to 30 seconds
+//   leafFloatMs        how long it takes to float up to the tree, 2000 to 20000 ms
+//   leafFallMs         how long the oldest leaf takes to fall, 500 to 10000 ms (2D: Leaf Fall Duration)
+//   badgeColours       new leaves in their badge's colour instead of the new-leaf green (2D: Badge Leaf
+//                      Styling, which tints new leaves); older leaves stay dark green
+//   badgeLeafColors    the colour for each badge (BADGE_KEYS), any colour as on the 2D tree
+//   (Maximum Visible Leaves stays the 2D tree's treeParameters.leafFallThreshold, shared by both trees)
 
 const SKIES = ['sunrise', 'day', 'sunset', 'night'];
 const RIVER_MODES = ['auto', 'normal', 'high', 'danger'];
@@ -43,6 +61,18 @@ const LEAF_SIDES = ['both', 'left', 'right'];
 // Golds for VIP leaves.
 const VIP_LEAF_COLOURS = ['#d4af37', '#ffd700', '#e6b422', '#f0c75e', '#b8860b'];
 const TITLE_POSITIONS = ['auto', 'top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right'];
+// The badges a feedback leaf can carry (/api/tree badgeKey), with the 2D tree's default badge colours.
+const BADGE_KEYS = ['feedback-completer', 'climate-champion', 'renewable-innovator', 'sustainable-living-advocate',
+  'ocean-guardian', 'governance-guardian', 'social-champion'];
+const DEFAULT_BADGE_LEAF_COLORS = Object.freeze({
+  'feedback-completer': '#4a7c59',
+  'climate-champion': '#0f766e',
+  'renewable-innovator': '#f59e0b',
+  'sustainable-living-advocate': '#16a34a',
+  'ocean-guardian': '#0284c7',
+  'governance-guardian': '#7c3aed',
+  'social-champion': '#d97706'
+});
 
 const DEFAULT_TITLE_BOX = Object.freeze({
   showTitleBox: true,
@@ -82,6 +112,17 @@ const DEFAULT_TREE3D_PARAMETERS = Object.freeze({
   vipLeafColor: '#d4af37',
   vipLeafScale: 1,
   vipGlow: true,
+  leafAreaWidth: 100,
+  leafAreaHeight: 100,
+  leafAreaOffset: 0,
+  leafRefreshMs: 5000,
+  leafOpacity: 1,
+  leafAppearMs: 900,
+  leafShowcaseSeconds: 12,
+  leafFloatMs: 7200,
+  leafFallMs: 4200,
+  badgeColours: false,
+  badgeLeafColors: DEFAULT_BADGE_LEAF_COLORS,
   titleBox: DEFAULT_TITLE_BOX
 });
 
@@ -158,6 +199,30 @@ function normalizeTree3dParameters(updates) {
   if (has('vipLeafColor')) out.vipLeafColor = colour(updates.vipLeafColor, VIP_LEAF_COLOURS, 'VIP leaf colour');
   if (has('vipLeafScale')) out.vipLeafScale = Math.round(number(updates.vipLeafScale, 0.4, 2.5, 'VIP leaf scale') * 100) / 100;
   if (has('vipGlow')) out.vipGlow = bool(updates.vipGlow, 'VIP gold glow');
+  const whole = (key, min, max, name) => { if (has(key)) out[key] = Math.round(number(updates[key], min, max, name)); };
+  whole('leafAreaWidth', 30, 100, 'Leaf area width');
+  whole('leafAreaHeight', 30, 100, 'Leaf area height');
+  whole('leafAreaOffset', -40, 40, 'Leaf area up/down');
+  whole('leafRefreshMs', 5000, 120000, 'Leaf refresh interval');
+  if (has('leafOpacity')) out.leafOpacity = Math.round(number(updates.leafOpacity, 0.1, 1, 'Leaf opacity') * 100) / 100;
+  whole('leafAppearMs', 100, 5000, 'Leaf appear duration');
+  if (has('leafShowcaseSeconds')) {
+    out.leafShowcaseSeconds = Math.round(number(updates.leafShowcaseSeconds, 0, 30, 'Time at the bottom middle') * 10) / 10;
+  }
+  whole('leafFloatMs', 2000, 20000, 'Float-up duration');
+  whole('leafFallMs', 500, 10000, 'Leaf fall duration');
+  if (has('badgeColours')) out.badgeColours = bool(updates.badgeColours, 'Badge colours');
+  if (has('badgeLeafColors')) {
+    const given = updates.badgeLeafColors;
+    if (!given || typeof given !== 'object' || Array.isArray(given)) throw badRequest('Badge leaf colours must be an object');
+    out.badgeLeafColors = {};
+    for (const key of BADGE_KEYS) {
+      if (!Object.prototype.hasOwnProperty.call(given, key)) continue;
+      const hex = String(given[key] ?? '').trim().toLowerCase();
+      if (!/^#[0-9a-f]{6}$/.test(hex)) throw badRequest(`The ${key} badge colour must be a colour like #4a7c59`);
+      out.badgeLeafColors[key] = hex;
+    }
+  }
 
   if (has('titleBox')) {
     const box = updates.titleBox;
@@ -184,6 +249,7 @@ function mergeTree3dParameters(current, changes) {
   return {
     ...base,
     ...changes,
+    badgeLeafColors: { ...DEFAULT_BADGE_LEAF_COLORS, ...(base.badgeLeafColors || {}), ...(changes.badgeLeafColors || {}) },
     titleBox: { ...DEFAULT_TITLE_BOX, ...(base.titleBox || {}), ...(changes.titleBox || {}) }
   };
 }
@@ -192,6 +258,8 @@ module.exports = {
   LEAF_NEW_COLOURS,
   LEAF_OLD_COLOURS,
   VIP_LEAF_COLOURS,
+  BADGE_KEYS,
+  DEFAULT_BADGE_LEAF_COLORS,
   DEFAULT_TREE3D_PARAMETERS,
   DEFAULT_TITLE_BOX,
   normalizeTree3dParameters,

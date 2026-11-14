@@ -6714,7 +6714,7 @@ router.post('/parameters/tree-background/upload', auth.requireAdmin, uploadTreeB
 router.put('/parameters/treeParameters', auth.requireAdmin, (req, res) => {
     try {
         console.debug('🌳 Saving tree parameters');
-        const { treeStage, treeStageMode, showTitleBox, leafDisplayScale, vipLeafDisplayScale, leafThresholds, treeTitleBox, treeDisplayMode } = req.body;
+        const { treeStage, treeStageMode, showTitleBox, leafDisplayScale, vipLeafDisplayScale, leafThresholds, treeTitleBox, treeDisplayMode, leafFallThreshold } = req.body;
         const normalizedDisplayMode = treeDisplayMode === undefined
             ? undefined
             : normalizeTreeDisplayMode({ treeDisplayMode }).treeDisplayMode;
@@ -6735,6 +6735,12 @@ router.put('/parameters/treeParameters', auth.requireAdmin, (req, res) => {
         if (leafThresholds) config.treeParameters.leafThresholds = normalizeLeafThresholds(leafThresholds);
         // Auto: the tree grows by itself with its leaf count (features/parameters/treeStage.js).
         if (treeStageMode !== undefined) config.treeParameters.treeStageMode = normalizeTreeStageMode(treeStageMode);
+        // Maximum Visible Leaves, shared by the 2D and 3D trees (also set from the 3D Visualization Parameters).
+        if (leafFallThreshold !== undefined) {
+            const maxLeaves = Math.round(Number(leafFallThreshold));
+            if (!Number.isFinite(maxLeaves)) return res.status(400).json({ success: false, error: 'Maximum Visible Leaves must be a number' });
+            config.treeParameters.leafFallThreshold = Math.min(500, Math.max(1, maxLeaves));
+        }
         if (normalizedDisplayMode !== undefined) config.treeParameters.treeDisplayMode = normalizedDisplayMode;
 
         // Handle treeTitleBox – merge with existing, but DO NOT override with root showTitleBox
