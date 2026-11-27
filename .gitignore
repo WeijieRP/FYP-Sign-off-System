@@ -5,10 +5,12 @@ node_modules/
 *.log
 logs/
 backend/cache/
-uploads/photos/*
-uploads/processed/*
-!uploads/photos/.gitkeep
-!uploads/processed/.gitkeep
+# <Jun Kai start>
+# every uploads folder holds visitor files (photos, lost & found items, temp zips): only the .gitkeep placeholders are kept
+uploads/**
+!uploads/**/
+!uploads/**/.gitkeep
+# <Jun Kai end>
 
 # Secrets and certificates: never commit new ones.
 # backend/.env and backend/certs/ are still tracked from the previous team; untracking them is a separate, later step.

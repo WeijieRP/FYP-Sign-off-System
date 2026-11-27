@@ -1,6 +1,7 @@
 // Owner: Role 3, Jun Kai. Previous team: Bernissa (schedule and mode files), Yu Kang (kiosk status probe).
 // Kiosk server control shared by the admin routes and the automation scheduler: the schedule, mode and
-// automation-log files, the kiosk status probe, the start and hibernate actions, and the schedule maths.
+// automation-log files, the kiosk status probe, the start action, the previous team's manual hibernate (the Stop
+// button), and the schedule maths.
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
@@ -11,7 +12,7 @@ const { readJson, writeJsonAtomic } = require('../../core/jsonFile');
 const SCHEDULE_CONFIG_PATH = process.env.SCHEDULE_CONFIG_PATH || paths.dataFile('kiosk-schedules.json');
 const MODE_FILE = paths.dataFile('server-control-mode.json');
 const AUTOMATION_FILE = paths.dataFile('server-automation.json');
-const MAX_EVENTS = 50;
+const MAX_EVENTS = 500; // <Jun Kai/> starts, stops and their causes are kept here too, so the list is longer than 50
 
 const kioskControlConfig = {
     windowsPidFile: path.join(paths.BACKEND, 'kioskServer.pid'),
@@ -56,7 +57,7 @@ function onSchedulesChanged(listener) {
     scheduleListeners.push(listener);
 }
 
-// Manual is the safe default: in auto mode the scheduler hibernates the PC
+// Manual is the safe default: in auto mode the policies run the kiosk
 function readModeConfig() {
     const config = readJson(MODE_FILE, null);
     if (config && ['auto', 'manual'].includes(config.mode)) return config;
@@ -85,13 +86,25 @@ function saveAutomation(data) {
     try { writeJsonAtomic(AUTOMATION_FILE, data); } catch (error) { console.error('⚠️ Could not write the automation log:', error.message); }
 }
 
-function recordEvent(type, detail, dryRun = false) {
+// <Jun Kai start>
+// extra.at: when it happened, for something that is only known later (a stop is written down at the next start);
+// extra.cause: a short key the page uses for its label, for example 'power-lost'
+function recordEvent(type, detail, dryRun = false, extra = {}) {
     const data = readAutomation();
-    data.events.push({ at: new Date().toISOString(), type, detail, dryRun: !!dryRun });
-    if (data.events.length > MAX_EVENTS) data.events = data.events.slice(-MAX_EVENTS);
+    const event = { at: extra.at || new Date().toISOString(), type, detail, dryRun: !!dryRun };
+    if (extra.cause) event.cause = extra.cause;
+    data.events.push(event);
+    data.events = byTime(data.events).slice(-MAX_EVENTS);
     saveAutomation(data);
     console.log(`🤖 Automation ${dryRun ? '[dry run] ' : ''}${type}: ${detail}`);
 }
+
+// oldest first; lines of the same moment stay in the order they were written
+function byTime(events) {
+    return events.map((event, index) => ({ event, index, at: new Date(event.at).getTime() || 0 }))
+        .sort((a, b) => (a.at - b.at) || (a.index - b.index)).map((item) => item.event);
+}
+// <Jun Kai end>
 
 function setLastHibernateKey(key) {
     const data = readAutomation();
@@ -221,10 +234,17 @@ function hibernateNow(reason, { dryRun = false } = {}) {
 
 // <Jun Kai start>
 // The schedule maths (which policy decides when) lives in policies.js.
+// One record of the last kiosk start attempt, shared by the policies (scheduler.js) and the incident fix (aiops/fixes.js),
+// so the two never start the kiosk server twice within the same few minutes
+const START_GAP_MS = 5 * 60 * 1000; // at most one automatic kiosk start in this time
+let lastStartAttemptMs = 0;
+const noteStartAttempt = (at = Date.now()) => { lastStartAttemptMs = at; };
+const lastStartAttempt = () => lastStartAttemptMs;
+
 module.exports = {
     SCHEDULE_CONFIG_PATH, MODE_FILE, AUTOMATION_FILE, kioskControlConfig,
     readSchedulesConfig, writeSchedulesConfig, onSchedulesChanged, readModeConfig, writeModeConfig,
-    readAutomation, recordEvent, setLastHibernateKey,
-    resolveKioskStatus, logKioskStatusIfNeeded, startKiosk, hibernateNow
+    readAutomation, recordEvent, byTime, MAX_EVENTS, setLastHibernateKey,
+    resolveKioskStatus, logKioskStatusIfNeeded, startKiosk, hibernateNow, noteStartAttempt, lastStartAttempt, START_GAP_MS
 };
 // <Jun Kai end>

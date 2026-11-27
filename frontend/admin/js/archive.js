@@ -82,6 +82,8 @@ function filterArchiveData() {
                 item.name || '',
                 String(item.visits || ''),
                 item.pledge || '',
+                // <Jun Kai/> the answers too: typed feedback and the labels of chosen options
+                (Array.isArray(item.question_answers) ? item.question_answers.map((a) => `${(a && a.answer_value) || ''} ${(a && a.option_label) || ''}`).join(' ') : ''),
                 item.date ? new Date(item.date).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' }) : ''
             ].join(' ').toLowerCase();
             
@@ -157,195 +159,86 @@ function filterArchiveData() {
     renderArchivePage();
 }
 
-// Update archive count displays
-function updateArchiveCounts(total, filtered, activeFilters) {
-    const elements = {
-        'archive-filtered-count': filtered,
-        'archive-total-count': total,
-        'archive-results-count': filtered,
-        'archive-total': total,
-        'archive-active-filters-count': activeFilters
-    };
-    
-    Object.entries(elements).forEach(([id, value]) => {
-        const el = document.getElementById(id);
-        if (el) el.textContent = value;
-    });
-    
-    const infoBar = document.getElementById('archive-results-info-bar');
-    if (infoBar) {
-        infoBar.style.display = activeFilters > 0 ? 'block' : 'none';
-    }
+// <Jun Kai start>
+// Archived Feedback since the admin redesign (list style A, like Feedback). The rows, the pager and the side panel come
+// from submissionList.js; this file keeps loading, filtering and the Delete by date panel.
+const archiveView = makeSubmissionList({
+    key: 'archive', name: 'archiveView', pageId: 'archive-page', columns: 9, perPage: archiveItemsPerPage,
+    all: () => allArchiveData, setAll: (rows) => { allArchiveData = rows; },
+    list: () => filteredArchiveData, setList: (rows) => { filteredArchiveData = rows; },
+    page: () => archiveCurrentPage, setPage: (number) => { archiveCurrentPage = number; },
+    decrypted: () => decryptedArchiveEmailMap,
+    resetDecrypted: () => { decryptedArchiveEmailMap = {}; isAnyArchiveEmailDecrypted = false; },
+    markDecrypted: (id, email) => { decryptedArchiveEmailMap[id] = email; isAnyArchiveEmailDecrypted = true; },
+    setEncryptedIds: (ids) => { encryptedArchiveIds = ids; },
+    updateButtons: () => updateArchiveEncryptionButtons(),
+    remove: (id) => deleteArchiveFeedback(id),
+    refilter: () => filterArchiveData(),
+    clearFilters: 'clearAllArchiveFilters()',
+    // tick boxes for System Admins (Delete selected); a single delete stays with IT admins too, as before
+    tickColumn: true, canTick: () => sessionStorage.getItem('userRole') === 'system_admin', tickClass: 'archive-select-checkbox',
+    onTick: () => updateArchiveSelectionCount(),
+    beforeOpen: () => closeArchiveDeletePanel(false),
+    keepRoom: () => !document.getElementById('archive-delete-panel').hidden,
+    emptyText: 'Nothing is archived yet. Feedback moves here once it is older than the auto-archive period.',
+    filteredText: 'No archived submission matches these filters.',
+});
+function updateArchiveCounts(total, filtered, activeFilters) { archiveView.showFilterState(activeFilters); }
+function renderArchivePage() { archiveView.render(); }
+function updateArchivePaginationControls(totalItems, totalPages) { archiveView.pager(totalItems, totalPages); }
+function archiveDeleted(feedbackId) { archiveView.deleted(feedbackId); } // called by feedbackDeletion.js after a delete
+
+function clearArchiveSelection() {
+    document.querySelectorAll('.archive-select-checkbox').forEach((box) => { box.checked = false; });
+    updateArchiveSelectionCount();
 }
 
-// Render current page of archive (SAME STYLING AS FEEDBACK)
-function renderArchivePage() {
-    const tbody = document.getElementById('archive-table-body');
-    if (!tbody) return;
-    
-    tbody.innerHTML = '';
-    
-    // Get current user role
-    const userRole = sessionStorage.getItem('userRole');
-    
-    // Calculate pagination
-    const totalPages = Math.ceil(filteredArchiveData.length / archiveItemsPerPage);
-    const startIndex = (archiveCurrentPage - 1) * archiveItemsPerPage;
-    const endIndex = startIndex + archiveItemsPerPage;
-    const pageData = filteredArchiveData.slice(startIndex, endIndex);
-    
-    // Collect encrypted IDs from current page
-    encryptedArchiveIds = [];
-    pageData.forEach(item => {
-        if (item.email_encrypted && 
-            item.email_encrypted.trim() !== '' && 
-            item.email_encrypted.toLowerCase() !== 'no email provided') {
-            encryptedArchiveIds.push(item.id);
-        }
-    });
-    
-    // Show no data message
-    if (filteredArchiveData.length === 0) {
-        tbody.innerHTML = `
-            <tr>
-                <td colspan="11" style="text-align: center; padding: 40px; color: #64748b;">
-                    ${allArchiveData.length === 0 
-                        ? 'No archived feedback found. Feedback moved by the archive rules will appear here.'
-                        : 'No results match your filters. Try adjusting your search criteria.'}
-                </td>
-            </tr>
-        `;
-        updateArchivePaginationControls(0, 0);
-        updateArchiveEncryptionButtons();
-        return;
-    }
-    
-    // Render each row - EXACT SAME STYLING AS FEEDBACK
-    pageData.forEach(feedback => {
-        const row = tbody.insertRow();
-        row.setAttribute('data-feedback-id', feedback.id);
-        row.setAttribute('data-retention', feedback.data_retention || 'longterm');
-        
-        // Checkbox - only for system_admin
-        const checkboxCell = row.insertCell(0);
-        checkboxCell.className = 'checkbox-col';
-        if (userRole === 'system_admin') {
-            checkboxCell.innerHTML = `<input type="checkbox" class="archive-select-checkbox" value="${feedback.id}" onchange="updateArchiveSelectionCount()">`;
-        } else {
-            checkboxCell.innerHTML = `<span class="text-muted">-</span>`;
-        }
-        
-        // Name
-        row.insertCell(1).textContent = feedback.name || 'Anonymous';
-        
-        // Email - WITH ICONS AND COLORS (same as feedback)
-        const emailCell = row.insertCell(2);
-        emailCell.className = 'email-cell';
-        
-        if (decryptedArchiveEmailMap[feedback.id]) {
-            emailCell.innerHTML = `<span class="text-success font-weight-600">🔓 ${decryptedArchiveEmailMap[feedback.id]}</span>`;
-        } else if (feedback.email_encrypted && 
-                   feedback.email_encrypted.trim() !== '' && 
-                   feedback.email_encrypted.toLowerCase() !== 'no email provided') {
-            emailCell.innerHTML = `<span class="text-muted">🔒 [Encrypted]</span>`;
-        } else {
-            emailCell.innerHTML = `<span class="text-light-gray">No email provided</span>`;
-        }
-        
-        // Visits
-        row.insertCell(3).textContent = feedback.visits || 1;
-        
-        // Pledge
-        const pledgeCell = row.insertCell(4);
-        if (feedback.pledge && feedback.pledge.trim() !== '') {
-            pledgeCell.innerHTML = `<button class="btn-view" onclick="viewPledge(${feedback.id})">View</button>`;
-        } else {
-            pledgeCell.innerHTML = '<span class="text-muted font-size-12">No pledge</span>';
-        }
-        
-        // Questions & Answers
-        const qaCell = row.insertCell(5);
-        if (feedback.question_answers && feedback.question_answers.length > 0) {
-            qaCell.innerHTML = `<button class="btn-view" onclick="viewQuestionAnswers(${feedback.id})">View</button>`;
-        } else {
-            qaCell.innerHTML = '<span class="text-muted font-size-12">No answers</span>';
-        }
-        
-        // Data Retention WITH BADGES (same as feedback)
-        const retentionCell = row.insertCell(6);
-        const retention = feedback.data_retention || 'longterm';
-        if (retention === '7days' || retention === '7day') {
-            retentionCell.innerHTML = '<span class="badge badge-warning">7 DAYS</span>';
-        } else {
-            retentionCell.innerHTML = '<span class="badge badge-permanent">LONG-TERM</span>';
-        }
-        
-        // Raw Photo
-        const rawPhotoCell = row.insertCell(7);
-        if (feedback.photo_path) {
-            rawPhotoCell.innerHTML = `<button class="btn-view" onclick="viewRawPhoto(${feedback.id})">View</button>`;
-        } else {
-            rawPhotoCell.innerHTML = '<span class="text-muted font-size-12">No raw photo</span>';
-        }
-        
-        // Processed Photo
-        const processedPhotoCell = row.insertCell(8);
-        if (feedback.processed_photo_path) {
-            processedPhotoCell.innerHTML = `<button class="btn-view" onclick="viewProcessedPhoto(${feedback.id})">View</button>`;
-        } else {
-            processedPhotoCell.innerHTML = '<span class="text-muted font-size-12">No processed photo</span>';
-        }
-        
-        // Date
-        row.insertCell(9).textContent = new Date(feedback.date).toLocaleString('en-SG', {
-            timeZone: 'Asia/Singapore',
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-        });
-        
-        // Actions - ROLE-BASED DELETE BUTTON
-        const actionsCell = row.insertCell(10);
-        
-        // IT_staff: View only, cannot delete
-        if (userRole === 'IT_staff') {
-            actionsCell.innerHTML = `<span class="text-muted font-size-12">View only</span>`;
-        } 
-        // IT_admin and system_admin: Can delete
-        else if (userRole === 'IT_admin' || userRole === 'system_admin') {
-            actionsCell.innerHTML = `<button class="btn-delete" onclick="deleteArchiveFeedback(${feedback.id})">🗑️ Delete</button>`;
-        }
-        // Default fallback
-        else {
-            actionsCell.innerHTML = `<span class="text-muted font-size-12">-</span>`;
-        }
-    });
-    
-    updateArchivePaginationControls(filteredArchiveData.length, totalPages);
-    updateArchiveEncryptionButtons();
+// ---- Delete by date: a side panel (System Admins); the record panel closes while it is open
+function openArchiveDeletePanel() {
+    archiveView.close(false);
+    const panel = document.getElementById('archive-delete-panel');
+    panel.hidden = false;
+    document.getElementById('archive-page').classList.add('ui-has-sidepanel');
+    document.getElementById('archive-delete-title').focus({ preventScroll: true });
 }
 
-// Update archive pagination controls
-function updateArchivePaginationControls(totalItems, totalPages) {
-    const prevBtn = document.getElementById('prev-archive-btn');
-    const nextBtn = document.getElementById('next-archive-btn');
-    const pageInfo = document.getElementById('archive-page-info');
-    
-    if (prevBtn) prevBtn.disabled = archiveCurrentPage <= 1;
-    if (nextBtn) nextBtn.disabled = archiveCurrentPage >= totalPages || totalPages === 0;
-    
-    if (pageInfo) {
-        pageInfo.textContent = totalPages > 0 
-            ? `Page ${archiveCurrentPage} of ${totalPages} (${totalItems} total)`
-            : 'Page 1 of 0 (0 total)';
-    }
+function closeArchiveDeletePanel(refocus = true) {
+    const panel = document.getElementById('archive-delete-panel');
+    if (!panel || panel.hidden) return;
+    panel.hidden = true;
+    if (archiveView.openId === null) document.getElementById('archive-page').classList.remove('ui-has-sidepanel');
+    if (refocus) document.querySelector('#archive-deletion-controls button')?.focus({ preventScroll: true });
 }
+
+// a date typed by hand: the count shown before belongs to another date, so Preview has to run again
+function archiveDeleteDateChanged() {
+    document.getElementById('preview-count').hidden = true;
+    document.getElementById('bulk-delete-btn').disabled = true;
+    document.querySelectorAll('#bulk-delete-quick button').forEach((b) => b.classList.remove('is-set'));
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const quick = document.getElementById('bulk-delete-quick');
+    if (quick) quick.addEventListener('click', (event) => {
+        const button = event.target.closest('button[data-quick]');
+        if (!button) return;
+        quick.querySelectorAll('button').forEach((b) => b.classList.toggle('is-set', b === button));
+        setQuickDeleteDate(button.dataset.quick);
+    });
+});
+// Esc closes Delete by date, unless the confirmation window above it is open
+document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    const panel = document.getElementById('archive-delete-panel');
+    if (!panel || panel.hidden || document.querySelector('.modal-overlay, .password-prompt-modal, dialog[open]')) return; // <Jun Kai/> a kit window (native dialog) counts too
+    closeArchiveDeletePanel();
+}, true);
+// <Jun Kai end>
 
 // Navigate archive pages
 function prevArchivePage() {
     if (archiveCurrentPage > 1) {
+        archiveView.close(false); // <Jun Kai/> the open submission is not on the next page
         archiveCurrentPage--;
         decryptedArchiveEmailMap = {};
         isAnyArchiveEmailDecrypted = false;
@@ -356,6 +249,7 @@ function prevArchivePage() {
 function nextArchivePage() {
     const totalPages = Math.ceil(filteredArchiveData.length / archiveItemsPerPage);
     if (archiveCurrentPage < totalPages) {
+        archiveView.close(false); // <Jun Kai/> the open submission is not on the next page
         archiveCurrentPage++;
         decryptedArchiveEmailMap = {};
         isAnyArchiveEmailDecrypted = false;

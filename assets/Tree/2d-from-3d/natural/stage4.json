@@ -1,0 +1,22 @@
+{
+  "style": "natural",
+  "stage": 4,
+  "capturedAt": "2026-11-21T06:18:29.592Z",
+  "width": 3840,
+  "height": 1080,
+  "canopy": {
+    "x": 1198,
+    "y": 121,
+    "width": 1458,
+    "height": 585
+  },
+  "coverage": 0.1321,
+  "treeFoot": {
+    "x": 1913,
+    "y": 860
+  },
+  "treeTop": {
+    "x": 1913,
+    "y": 120
+  }
+}

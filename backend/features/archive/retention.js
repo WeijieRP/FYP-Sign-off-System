@@ -43,7 +43,7 @@
 const db = require('../../core/db');
 const fs = require('fs');
 const path = require('path');
-const paths = require('../../core/paths');
+const { insideUploads } = require('../../core/photoFiles'); // <Jun Kai/> stored photo paths stay inside the uploads folder
 const parametersConfigStore = require('../parameters/store');
 
 const TEMPORARY_RETENTION_VALUES = new Set(['temporary', '7days', '7day']);
@@ -105,9 +105,9 @@ function isExpired(createdAt, retentionPeriod, feedbackId) {
 function deletePhotoFile(photoPath) {
     if (!photoPath) return;
 
-    const fullPath = path.join(paths.UPLOADS, photoPath);
+    const fullPath = insideUploads(photoPath); // <Jun Kai/> null when the stored path leaves the uploads folder
 
-    if (fs.existsSync(fullPath)) {
+    if (fullPath && fs.existsSync(fullPath)) {
         try {
             fs.unlinkSync(fullPath);
             console.debug(`   ✅ Deleted photo: ${path.basename(photoPath)}`);

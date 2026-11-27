@@ -5,7 +5,7 @@ Everything below is written for Windows with PowerShell, VS Code and GitHub.
 
 ## 1. What the system is
 
-A kiosk for the RP ESG Centre. Visitors use a tablet to give feedback, make a pledge and take a photo, then get an
+A kiosk for the RP Xperience Centre. Visitors use a tablet to give feedback, make a pledge and take a photo, then get an
 email. A big wall screen shows the digital tree and the pulse page. Staff manage all of it on the admin page.
 
 It is a plain Node.js app: Express for the server, MySQL 8.4 for the data, and normal HTML, CSS and JavaScript for
@@ -21,8 +21,8 @@ the pages (no React, no build step). What you write is what the browser runs.
 | Android tablets on the same Wi-Fi | Chrome, opened on the feedback page through the QR code | `https://<pc-ip>:3000/feedback` |
 | Any laptop | the admin page | `https://<pc-ip>:3000/admin` |
 
-The PC hibernates at night and wakes in the morning by itself (Server Schedule page, automatic mode). On your own
-laptop that automation must be off (see the `.env` step below) or your laptop will hibernate on you.
+The Server Schedule policies decide when the kiosk runs (automatic mode); putting the PC itself to sleep at night and
+waking it is the system-level part of Role 4. On your own laptop keep the automation off (see the `.env` step below).
 
 ## 3. How a request travels through the code
 
@@ -50,7 +50,7 @@ The wall pages (`frontend/tree`, `frontend/3dTree`, `frontend/pulse`, `frontend/
 ```
 startAll.js                   starts both servers
 backend/
-  core/                       shared: db.js, auth.js, paths.js (every file path), jsonFile.js, zip.js
+  core/                       shared: db.js, auth.js, paths.js (every file path), jsonFile.js, zip.js, audit.js
   features/<feature>/         one folder per feature; the owner is in the README "Team" table and in CODEOWNERS
   config/defaults/            committed starting values of the settings files (JSON)
   data/                       the live copies the admin page edits (made at boot, never in git)
@@ -104,7 +104,16 @@ additively and you tell Jun Kai. Your own folders are yours.
    cd FYP-Sign-off-System
    npm ci
    ```
-3. Create the database (it asks for your MySQL root password, and it drops `dp_kiosk_db` if it exists):
+3. Quickest way (Windows): run the installer. It checks the programs, runs `npm ci`, fills the empty keys of
+   `backend\.env` (`ENCRYPTION_KEY`, `SESSION_SECRET`, `KIOSK_AUTOMATION=off`), creates the database if it is
+   missing (asking once for the MySQL root password) and applies the migrations. It never drops a table, so it is safe
+   to run again. Then skip to `node startAll.js` in step 5. Details: [docs/features/install.md](features/install.md).
+   ```powershell
+   .\install.cmd -Role Laptop
+   .\install.cmd -Check
+   ```
+   The manual way (the rest of step 3, then steps 4 and 5) does the same by hand.
+   Create the database (it asks for your MySQL root password, and it drops `dp_kiosk_db` if it exists):
    ```powershell
    node scripts/setup/Datastore_Assembly.js
    ```
@@ -186,14 +195,17 @@ Two labels exist for special cases: `big-change` for a PR over 1500 changed line
 | pr-rules | PR title format, forbidden files (photos, `.env`, logs), size label | fix the title or remove the file |
 | secret-scan | gitleaks on the new commits | remove the secret, rotate it if it was real |
 | static | `node --check`, ESLint errors, the contract checks (below) | run `npm run check` locally and fix |
-| smoke (Ubuntu and Windows) | fresh MySQL 8.4, migrations, boots both servers, hits the routes, submits one feedback | run `npm run smoke` locally; read the server log in the job artifacts |
+| smoke (Ubuntu and Windows) | fresh MySQL 8.4, migrations, boots both servers, hits the routes, submits one feedback, then archives and deletes the records it seeded (`--archive`) | run `npm run smoke` locally; read the server log in the job artifacts |
 | ci-summary | the one required check | green when all of the above are |
 
 The contract checks catch the mistakes that are easy to make in a page with shared scope: every `fetch('/api/...')`
 points to a route that exists, every `onclick="..."` names a function that exists, every `getElementById('...')`
 has a matching element, no function is declared twice across the admin page, every `process.env.X` is listed in
-`.env.example`, every table name exists in `schema.sql` or a migration, CDN scripts are pinned to a version, and the
-route table matches `tests/contracts/routes.snapshot.txt`. After adding or renaming a route run
+`.env.example`, every table name exists in `schema.sql` or a migration, CDN scripts are pinned to a version, every
+route in `backend/features/admin/routes.js` and every `/admin` route in `backend/features/pledgeboard/routes.js`
+starts with a sign-in check (`auth.requireAuth`, or `auth.requireAuth, auth.requireAdmin` for system admins only),
+and the route table matches
+`tests/contracts/routes.snapshot.txt`. After adding or renaming a route run
 `npm run routes:update` and commit the snapshot with your change, and add a line for it in `tests/smoke.js`.
 
 Fix problems, never silence them (no `eslint-disable`, no skipping a check). If a check is wrong, say so in the PR.
@@ -251,6 +263,6 @@ true for your feature; nobody else will.
 
 - push to `main` (always a branch and a PR);
 - edit `database/schema.sql` (write a migration);
-- set `KIOSK_AUTOMATION=on` on a laptop and switch the Server Schedule page to automatic mode (it hibernates the machine);
+- press Stop and hibernate on the Server Schedule page of your laptop's copy (it hibernates the machine);
 - commit `backend/.env`, `backend/data/`, `uploads/`, `logs/`;
 - change another role's folder without telling the owner.

@@ -1,5 +1,14 @@
+# Text files are stored with LF in git whatever an editor writes (a file saved with CRLF is normalised when it is
+# committed), so a file converted to CRLF on one PC does not turn every line into a change. How files look on
+# disk after a checkout stays as each PC's git settings decide. The rules below override this for their files.
+* text=auto
+
 *.pdf binary
 
 # Shell scripts and git hooks must keep LF endings even when checked out on Windows
 .githooks/* text eol=lf
 *.sh text eol=lf
+
+# Windows command files need CRLF endings (install.cmd, uninstall.cmd)
+*.cmd text eol=crlf
+*.bat text eol=crlf

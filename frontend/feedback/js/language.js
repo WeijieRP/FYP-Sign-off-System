@@ -4,7 +4,7 @@
 
 const translations = {
     en: {
-        brandText: "ESG Feedback Portal",
+        brandText: "RP Xperience Centre Feedback Portal",
         landingTitle: "Let's turn your ideas into reality",
         landingSubtitle: "Share your thoughts and help us improve our services. Your feedback matters.",
         startButton: "Start Feedback Form",

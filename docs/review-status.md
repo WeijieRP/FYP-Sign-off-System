@@ -58,30 +58,35 @@ Commits so far: `a03bbeb` CI-flagged fixes, `02240df` dotenv, `4609ec9` admin ba
 | fixed | admin routes | dead /archive/stats and /bulk-decrypt-archive used an undefined pool, bcrypt and decryptEmail | routes.js | a03bbeb |
 | fixed | admin page | showError undefined; 5 duplicate functions; dead kiosk-status poller | admin.js (old) | a03bbeb |
 | fixed | core | backend/.env was never loaded by startAll.js | server.js, kioskServer.js | 02240df |
-| open | themes | Save Theme always fails: it reads hex-* inputs that no longer exist; card swatches always grey | themes.js | |
-| open | users | soft-deleted admins can still log in | core/auth.js 258 | |
-| open | audit | several routes write the audit row before the auth or password check; EDIT_USER names the target as the actor | old 3545, 3647, 4182, 4368, 4516, 4738, 5090, 3850 | |
-| open | archive | archive hard-delete unlinks the photos before the SQL DELETE and has no transaction | old 3053, 3203 | |
+| fixed | themes | Save Theme always failed: it read hex-* inputs that no longer exist; card swatches always grey. The colours now come from themeSettings (a colour never changed is saved with its default), and the swatches use colour names a theme has today | themes.js | 19 Nov 2026 |
+| fixed | users | soft-deleted admins could still log in, and one that was signed in stayed signed in. The login now refuses an account in Deleted Users, and `backend/core/adminSessions.js` signs an account out at its next request when it is deleted, or when another admin changes its username, role or password | core/auth.js, core/adminSessions.js | 19 Nov 2026 |
+| open | audit | several routes write the audit row before the role or password check (since 19 Nov 2026 only for a signed-in admin, under the session's name). EDIT_USER named the target as the actor: fixed 19 Nov 2026, it names the admin who made the edit | old 3545, 3647, 4182, 4368, 4516, 4738, 5090, 3850 | |
+| fixed | archive | archive hard-delete unlinks the photos before the SQL DELETE and has no transaction (now one transaction with its deleted counts; photos go after it, only for the rows deleted) | old 3053, 3203 | feat/role3-archive |
 | open | archive | /archive/delete-selected and the export downloads answer 401 on a wrong password (should be 403) | routes.js, exportRoutes.js | |
 | open | analysis | engine failures are cached as "neutral" forever; Ollama failures show nothing in the admin page | old 2426 | |
 | open | analysis | cacheStore never persists hit statistics and rewrites the whole JSON cache every run | analysis/cacheStore.js 404 | |
-| open | analysis | /feedback-sentiment-analysis downloads a 164 MB model and has no auth | routes.js | |
-| open | admin routes | three queries use a `feedback.rating` column that does not exist | old 1399, 4252, 4345 | |
-| open | archive | auto-archive never runs when the PC hibernates every night | old 6466 | |
+| open | analysis | /feedback-sentiment-analysis downloads a 164 MB model (it asks for a system admin sign-in since 19 Nov 2026, and no page calls it) | routes.js | |
+| fixed | admin routes | three queries used a `feedback.rating` column that does not exist: the count in GET /api/admin/test-db always failed, and the two old CSV downloads had a Rating column that was always empty. Both are gone | routes.js | 19 Nov 2026 |
+| fixed | archive | auto-archive never runs when the PC hibernates every night (now checked at start and every 15 minutes, once per Singapore day; shipped default off) | old 6466 | feat/role3-archive |
 | open | archive | temporary retention is dead end-to-end; the clean-up re-processes the same legacy rows from both servers | archive/retention.js 149 | |
-| open | archive | CSV export turns 0 into a blank, has no formula neutralisation and prints raw Date strings | exportRoutes.js 974 | |
+| fixed | archive | CSV export turned 0 into a blank, had no formula neutralisation and printed raw Date strings. The cells of the CSV files the server builds go through `backend/core/csv.js`, and the audit page's own download follows the same rules: 0 is kept, a date is YYYY-MM-DD HH:mm:ss in Singapore time, and text that starts with = + - @ gets a ' in front | core/csv.js | 19 Nov 2026 |
 | open | email | initEmailService always reports success | email/service.js 1085 | |
 | open | email | transport reloads only in the server.js process; the kiosk server keeps stale credentials; custom provider insists on user and password | email/service.js | |
-| open | email | the visitor name is inserted raw into the thank-you HTML | email/service.js 1281 | |
+| fixed | email | the visitor name was inserted raw into the thank-you HTML. It is escaped since the email was redone on 12 Nov 2026 (confirmed on 19 Nov 2026 by building the email with a name full of tags) | email/service.js 1266 | 12 Nov 2026 |
 | open | parameters | settings files are written non-atomically; a corrupt parametersConfig.json is silently replaced by the defaults | parameters/store.js 248 | |
 | fixed | server control | schedules were CRUD only; nothing executed them on Windows. Now: scheduler + Windows wake timer (feature A) | backend/features/serverControl/ | hibernation feature, 31 Oct |
 | fixed | server control | the page rejected overnight schedules (stop before start now means the next day) | serverControl.js | hibernation feature, 31 Oct |
 | fixed | parameters | the email-pattern setting is hidden from the Parameter Adjustment form (task-sheet item) | admin.html | hibernation feature, 31 Oct |
 | fixed | parameters | Save still sent the hidden email pattern as the default, overwriting a pattern changed in the JSON file | parameters.js | f7bfc32 |
 | fixed | admin page | the hibernation commit left a literal "$1" where the <title> tag was (text at the top of the page, no tab title) | admin.html 116 | 7f9d9cc |
-| open | server control | restart-app.bat and startup-monitor.bat can double-launch the servers | project root | |
-| open | core | only 39 of about 108 admin routes use auth.requireAuth; the router is mounted with no guard | server.js 409 | |
-| open | core | static files are served before the page gates, so /tree/tree.html bypasses the 2D/3D and mobile gates | server.js 409 | |
+| fixed | server control | restart-app.bat and startup-monitor.bat could double-launch the servers: the monitor started them in the gap between the restart's stop and start. The monitor now looks twice, 10 seconds apart, before it starts them (restart-app.bat is unchanged). Tested with a stand-in copy of the monitor, not with the real programs | project root | 19 Nov 2026 |
+| fixed | core | only 39 of about 108 admin routes used auth.requireAuth: 36 routes of the old admin router answered without a sign-in (the feedback list, the users list, add / edit / delete an admin, VIPs, questions, overlays, the audit log). Each of them now starts with a sign-in check, the handlers take the admin's name from the session and not from an `x-username` header (it defaulted to `systemadmin`), and the contract check "sign-in" fails when a route of that file has none. `/login` and `/logout-audit` stay open on purpose | admin/routes.js | 19 Nov 2026 |
+| fixed | core | static files are served before the page gates, so /tree/tree.html bypassed the 2D/3D gate. `backend/core/pageGates.js` sends a request for tree.html or 3dTree.html to its gated route. The file is looked up the way the disk names it; tested with another case, a dot at the end, a stream name, a letter written as %xx and a backslash. Still open: Pledgeboard.html is left as a plain file on purpose, because its phone gate bounces every phone (Role 1 row below); the kiosk server has no gates at all (next row but one) | core/pageGates.js | 19 Nov 2026 |
+| fixed | audit | the Download button of the Audit Logs page called the Logout route "to log the download", so every download wrote a LOGOUT line and signed the admin out (found 19 Nov 2026). The call is gone, and the cells of that file follow the CSV rules (a username typed at the login lands in it) | admin/js/lostFound.js | 19 Nov 2026 |
+| fixed | core | no limit on wrong passwords at the admin sign-in (found 19 Nov 2026). `backend/core/loginLimit.js`: 5 wrong passwords for one username from one address within 15 minutes lock that pair for 15 minutes, 20 from one address lock the address; kept in memory. POST /api/admin/data-export/unlock was a second password check with no sign-in: it now asks for one and checks the signed-in admin's own password | core/loginLimit.js, exportRoutes.js | 19 Nov 2026 |
+| fixed | core | /uploads was served to anyone who knew a file name (found 19 Nov 2026), on both servers. `backend/core/uploadsGate.js`: a signed-in admin, or the browser that just saved the file (the photo download on the kiosk thank-you page). The kiosk server's session cookie was "secure" on a plain http listener, so no visitor had a session there; it is a plain cookie now | core/uploadsGate.js, kioskServer.js | 19 Nov 2026 |
+| fixed | core | /api/server-info, /api/network-interfaces, /api/test-db and /api/test-email-service answered anyone (found 19 Nov 2026), on both servers. Now a signed-in admin, or a request made on the PC itself (`backend/core/localPc.js`) | server.js, kioskServer.js | 19 Nov 2026 |
+| fixed | admin routes | IT staff and IT admin got 403 on two reads their own pages make: the background list of Digital Tree and the cache setting of Feedback Report (found 18 Nov 2026). Both reads are for any signed-in admin now; saving stays with the system admin | routes.js | 19 Nov 2026 |
 | fixed | core | getSelectedIP fell back to the first adapter (VMware) unless one was named "Wi-Fi 2"; virtual adapters are now skipped | server.js 227 | hibernation feature, 31 Oct |
 | open | core | kioskServer.js drifted from server.js (no page gates, different static handling) | kioskServer.js | |
 | open | scripts | Simulation_Generator stores bare filenames and needs pngjs, which is not installed; Purge_Actuator leaves photos and tables behind | scripts/setup | |
@@ -92,7 +97,7 @@ Commits so far: `a03bbeb` CI-flagged fixes, `02240df` dotenv, `4609ec9` admin ba
 | fixed | health | a failed health poll kept the previous green pill and "Checked at" time on screen | health.js 120 | PR #4 |
 | fixed | admin page | showNotification rendered server messages as raw HTML (a duplicate schedule name echoed the typed name) | serverControl.js 740 | PR #4 |
 | fixed | analysis | the qwen, gemma and localgpt engines hard-coded localhost:11434 while the health card reads OLLAMA_URL | routes.js 1881, 1909, 1940 | PR #4 |
-| open | health | POST /api/health/heartbeat has no login or rate limit, so anyone on the LAN can add endless device rows (one per made-up id) | health/publicRoutes.js 31 | |
+| fixed | health | POST /api/health/heartbeat had no limit, so anyone on the LAN could add endless device rows (one per made-up id). A known device is never limited; one address adds 5 new devices an hour and the table holds 200 (devices not seen for 30 days make room first) | health/heartbeatLimit.js | 19 Nov 2026 |
 
 ## Role 1, Zihan (feedback screen, feedback routes, questions, overlays, form UI, pledgeboard)
 
@@ -147,7 +152,7 @@ Commits so far: `a03bbeb` CI-flagged fixes, `02240df` dotenv, `4609ec9` admin ba
 | open | pledgeboard | unlimited likes: the identity is a browser-made string sent in the body | Pledgeboard.js 65, routes 161 | |
 | open | pledgeboard | the public /pledges API returns every visitor's survey answers and photo ids | pledgeboard/routes.js 62 | |
 | open | pledgeboard | one request per pledge on every search keystroke | Pledgeboard.js 386 | |
-| open | pledgeboard | moderation and topic routes have no auth | pledgeboard/routes.js 378, 423 | |
+| fixed | pledgeboard | moderation and topic routes had no auth (also on the kiosk server, port 3003). The four `/admin` routes now start with `auth.requireAuth`, "moderated by" is the admin of the session, and the contract check "sign-in" covers them. Fixed by Role 3 because the admin page calls them | pledgeboard/routes.js | 19 Nov 2026 |
 
 ## Role 2, Wei Jie (tree, 3D tree, pulse)
 
@@ -157,9 +162,9 @@ Commits so far: `a03bbeb` CI-flagged fixes, `02240df` dotenv, `4609ec9` admin ba
 | fixed | tree admin | leaf thresholds were saved but never loaded back into the form | admin/js/tree.js | e71ff16 |
 | fixed | tree admin | Auto/Manual stage toggle was only wired after a page reload, never after a fresh login | admin/js/tree.js, navigation.js | e71ff16 |
 | fixed | tree routes | year computed three different ways (SQL YEAR, JS getFullYear, CONVERT_TZ) | tree/routes.js 114, 177 | 0d57c1c |
-| open | 3D tree | the 3D page never draws a leaf: the tree-image line is commented out | 3dTree.js 112, 865 | |
-| open | 3D tree | title box and VIP settings ignored; VIP folder `vip_leaf` should be `vip-leaf` | 3dTree.js 315, 1133 | |
-| open | 3D tree | model-viewer only from a Google CDN, no fallback | 3dTree.html 7 | |
+| closed | 3D tree | the 3D page never draws a leaf: the tree-image line is commented out | 3dTree.js 112, 865 | old 3D page replaced by the Ketapang River scene |
+| closed | 3D tree | title box and VIP settings ignored; VIP folder `vip_leaf` should be `vip-leaf` | 3dTree.js 315, 1133 | old 3D page replaced by the Ketapang River scene |
+| closed | 3D tree | model-viewer only from a Google CDN, no fallback | 3dTree.html 7 | old 3D page replaced by the Ketapang River scene |
 | open | tree | live tree polls every 5 s regardless of leafRefreshInterval, 4 requests and a full rebuild each time | tree.js 2042 | |
 | open | tree admin | auto growth stage is computed once at save time; nothing re-evaluates it as leaves arrive | admin/js/tree.js, routes.js | |
 | open | tree admin | empty number boxes save 0 and the wall uses hidden defaults | parameters.js, tree.js 411 | |

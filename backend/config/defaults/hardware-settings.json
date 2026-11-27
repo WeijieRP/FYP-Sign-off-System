@@ -1,5 +1,11 @@
 {
   "intervalSeconds": 60,
   "retentionDays": 30,
-  "forecastHours": 24
+  "forecastHours": 24,
+  "alerts": {
+    "cpu": { "warn": 85, "critical": 95 },
+    "memory": { "warn": 85, "critical": 95 },
+    "gpu": { "warn": 85, "critical": 95 },
+    "disk": { "warn": 85, "critical": 95 }
+  }
 }

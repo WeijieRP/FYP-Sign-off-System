@@ -1,6 +1,8 @@
 // Owner: shared. Previous team: Nick (8).
 // Lost and found report storage - changes made by nick
 const db = require('../../core/db');
+const auth = require('../../core/auth'); // <Jun Kai/> encryptEmail / decryptEmail for the contact
+const contactColumns = require('./contact'); // <Jun Kai/>
 
 const VALID_TYPES = new Set(['lost', 'found']);
 const VALID_STATUSES = new Set(['new', 'reviewed', 'resolved']);
@@ -26,7 +28,9 @@ function ensureLostFoundColumns(callback) { // Extended Lost & Found fields for 
     const migrations = [
         `ALTER TABLE lost_found_reports ADD COLUMN tracking_code VARCHAR(32)`,
         `ALTER TABLE lost_found_reports ADD COLUMN item_photo_path VARCHAR(500)`,
-        `ALTER TABLE lost_found_reports ADD COLUMN item_photo_original_name VARCHAR(255)`
+        `ALTER TABLE lost_found_reports ADD COLUMN item_photo_original_name VARCHAR(255)`,
+        // <Jun Kai/> the encrypted contact (migration 010 adds the same column; a server that has not run it yet adds it here)
+        `ALTER TABLE lost_found_reports ADD COLUMN contact_info_encrypted TEXT NULL AFTER contact_info`
     ];
 
     let index = 0;
@@ -103,14 +107,22 @@ function createLostFoundReport(payload, callback) {
     ensureLostFoundTable((tableErr) => {
         if (tableErr) return callback(tableErr);
 
+        // <Jun Kai start> the contact is saved encrypted (like visitor emails); contact_info stays empty
+        let stored;
+        try {
+            stored = contactColumns.encryptedColumns(contact, auth.encryptEmail);
+        } catch (encryptErr) {
+            return callback(encryptErr);
+        }
         const query = `
             INSERT INTO lost_found_reports
-                (report_type, item_description, location_text, contact_info, details, item_photo_path, item_photo_original_name, current_page, feedback_progress)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (report_type, item_description, location_text, contact_info, contact_info_encrypted, details, item_photo_path, item_photo_original_name, current_page, feedback_progress)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
 
-        db.run(query, [type, item, location, contact, details, itemPhotoPath || null, itemPhotoOriginalName || null, currentPage, progress], function(insertErr) {
+        db.run(query, [type, item, location, stored.contact_info, stored.contact_info_encrypted, details, itemPhotoPath || null, itemPhotoOriginalName || null, currentPage, progress], function(insertErr) {
             if (insertErr) return callback(insertErr);
+            // <Jun Kai end>
             const id = this.lastID;
             const trackingCode = getTrackingCodeForId(id);
             db.run(
@@ -154,6 +166,7 @@ function listLostFoundReports(callback) {
                 item_description,
                 location_text,
                 contact_info,
+                contact_info_encrypted,
                 details,
                 item_photo_path,
                 item_photo_original_name,
@@ -196,9 +209,27 @@ function updateLostFoundReportStatus(id, status, callback) {
     });
 }
 
+// <Jun Kai start> the plain contact of one report (decrypted, or the plain value of a row from before the change)
+function getLostFoundContact(id, callback) {
+    ensureLostFoundTable((tableErr) => {
+        if (tableErr) return callback(tableErr);
+        db.get('SELECT id, contact_info, contact_info_encrypted FROM lost_found_reports WHERE id = ?', [id], (err, row) => {
+            if (err) return callback(err);
+            if (!row) return callback(null, undefined);
+            try {
+                callback(null, contactColumns.revealContact(row, auth.decryptEmail));
+            } catch (decryptErr) {
+                callback(decryptErr);
+            }
+        });
+    });
+}
+// <Jun Kai end>
+
 module.exports = {
     createLostFoundReport,
     listLostFoundReports,
     updateLostFoundReportStatus,
-    getTrackingCodeForId
+    getTrackingCodeForId,
+    getLostFoundContact // <Jun Kai/>
 };

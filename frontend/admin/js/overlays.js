@@ -3,380 +3,261 @@
 // ==================== 12. OVERLAY MANAGEMENT ====================
 
 // Load overlay data
+// <Jun Kai start> a failed load or a missing table is said on the page with Try again, not in an alert box
 async function loadOverlayData() {
     try {
-        console.log('🎨 Loading overlay data...');
         const response = await fetch('/api/admin/overlays');
-        
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
-        console.log('Overlay API response:', data);
-        
-        if (data.success) {
-            if (data.message === 'Overlays table does not exist yet') {
-                updateOverlayTable([]);
-                showOverlayMessage('No overlays table found in database. Please run the database setup.');
-            } else {
-                updateOverlayTable(data.overlays);
-            }
+        if (!data.success) throw new Error(data.error || 'the server did not send the overlays');
+        if (data.message === 'Overlays table does not exist yet') {
+            updateOverlayTable([]);
+            showOverlayMessage('The overlays table is missing in the database. Run the database setup, then reload this page.');
         } else {
-            console.error('Failed to load overlay data:', data.error);
-            alert('Error loading overlay data: ' + (data.error || 'Unknown error'));
+            updateOverlayTable(data.overlays);
         }
     } catch (error) {
         console.error('Error loading overlay data:', error);
-        alert('Error connecting to server. Please check if the server is running.');
+        showOverlayMessage(`Could not load the overlays: ${error.message}.`, true);
     }
 }
 
-// Show overlay message
-function showOverlayMessage(message) {
+// a message in place of the gallery; retry adds a Try again button
+function showOverlayMessage(message, retry = false) {
     const overlayGrid = document.querySelector('.overlay-grid');
-    if (overlayGrid) {
-        overlayGrid.innerHTML = `
-            <div style="grid-column: 1 / -1; text-align: center; padding: 60px 40px; color: #64748b;">
-                <div style="font-size: 64px; margin-bottom: 20px;">📁</div>
-                <h3 style="color: #64748b; margin-bottom: 15px; font-size: 18px;">No Overlay Data</h3>
-                <p style="margin-bottom: 25px; line-height: 1.5;">${message}</p>
-                <button class="btn-primary" onclick="createOverlaysTable()" style="margin-top: 10px;">
-                    Create Overlays Table
-                </button>
-            </div>
-        `;
-    }
+    if (!overlayGrid) return;
+    overlayGrid.innerHTML = `<p class="ui-empty ov-loading${retry ? ' ov-error' : ''}">${overlayEscape(message)}${retry ? ' <button type="button" class="ui-link" onclick="loadOverlayData()">Try again</button>' : ''}</p>`;
 }
-
-// Create overlays table (placeholder)
-function createOverlaysTable() {
-    alert('This would create the overlays table in the database. You need to run the database setup script.');
-}
+// <Jun Kai end>
 
 // Update overlay table
+// <Jun Kai start>
+// Overlays A, the picture gallery: one card per overlay that leads with its desktop and mobile pictures, with the name,
+// theme ID, order and file type under them. The ID, both file paths and the date it was added open in the details
+// panel (click a card). The buttons call the same viewOverlay() and deleteOverlay() as before.
+let overlayList = [];
+let overlayOpenId = null;
+let overlayAdding = false; // the side panel shows the Add overlay form
+
+function overlayEscape(value) {
+    return String(value === null || value === undefined ? '' : value).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function overlayTypeText(overlay) {
+    const desktop = getOverlayFileTypeLabel(overlay.desktop_filename);
+    const mobile = getOverlayFileTypeLabel(overlay.mobile_filename);
+    return desktop === mobile ? desktop : `Desktop ${desktop} / Mobile ${mobile}`;
+}
+
+// a picture of an overlay file; a video file plays muted, a missing file says so
+function overlayPicture(src, kind, size) {
+    const file = overlayEscape(src);
+    const media = /\.(mp4|webm)$/i.test(String(src || '').split('?')[0])
+        ? `<video src="${file}" muted loop autoplay playsinline onerror="this.parentElement.classList.add('is-missing')"></video>`
+        : `<img src="${file}" alt="" loading="lazy" onerror="this.parentElement.classList.add('is-missing')">`;
+    return `<span class="ov-pic ov-pic-${kind}${size ? ` ov-pic-${size}` : ''}" title="${kind === 'desktop' ? 'Desktop' : 'Mobile'} picture">${src ? media : ''}</span>`;
+}
+
+function overlayAddedText(overlay) {
+    if (!overlay.created_at) return 'Not recorded';
+    const date = new Date(overlay.created_at);
+    return Number.isNaN(date.getTime()) ? 'Not recorded' : date.toLocaleDateString();
+}
+
+function fillOverlayIcons() {
+    document.querySelectorAll('#overlay-page [data-fb-icon]').forEach((slot) => {
+        slot.outerHTML = uiIcon(slot.getAttribute('data-fb-icon'), 16);
+    });
+}
+
 function updateOverlayTable(overlays) {
     const overlayGrid = document.querySelector('.overlay-grid');
     if (!overlayGrid) {
         console.error('Overlay grid not found');
         return;
     }
-    
+    fillOverlayIcons();
+    overlayList = Array.isArray(overlays) ? overlays : [];
     overlayGrid.innerHTML = '';
-    
-    if (overlays.length === 0) {
-        overlayGrid.innerHTML = `
-            <div style="grid-column: 1 / -1; text-align: center; padding: 40px; color: #64748b;">
-                <div style="font-size: 48px; margin-bottom: 16px;">🎨</div>
-                <h3 style="color: #64748b; margin-bottom: 10px;">No Overlays Found</h3>
-                <p>No overlay data available in the database.</p>
-            </div>
-        `;
+
+    if (overlayList.length === 0) {
+        overlayGrid.innerHTML = '<p class="ui-empty ov-loading">No overlays yet. Add one with Add overlay.</p>';
+        closeOverlayPanel(false);
         return;
     }
-    
-    overlays.forEach(overlay => {
-        const overlayCard = document.createElement('div');
-        overlayCard.className = 'overlay-card';
-        // Display saved overlay file type on each overlay card - changes made by nick
-        const desktopFileType = getOverlayFileTypeLabel(overlay.desktop_filename);
-        const mobileFileType = getOverlayFileTypeLabel(overlay.mobile_filename);
-        
-        overlayCard.innerHTML = `
-            <div class="overlay-card-content">
-                <div class="overlay-info-row">
-                    <span class="overlay-label">ID:</span>
-                    <span class="overlay-value">${overlay.id}</span>
+
+    overlayList.forEach((overlay) => {
+        const name = overlay.display_name || overlay.theme_id || `Overlay ${overlay.id}`;
+        const card = document.createElement('div');
+        card.className = 'overlay-card ov-card ui-card';
+        card.dataset.overlayId = overlay.id;
+        card.innerHTML = `
+            <div class="ov-pics">${overlayPicture(overlay.desktop_filename, 'desktop')}${overlayPicture(overlay.mobile_filename, 'mobile')}</div>
+            <div class="ov-meta">
+                <div class="ov-text">
+                    <button type="button" class="ov-name" data-ov="open" title="Show the details">${overlayEscape(name)}</button>
+                    <p class="ov-sub">Theme ID <code>${overlayEscape(overlay.theme_id)}</code> · order ${overlayEscape(overlay.display_order)} · ${overlayEscape(overlayTypeText(overlay))}</p>
                 </div>
-                <div class="overlay-info-row">
-                    <span class="overlay-label">Display Name:</span>
-                    <span class="overlay-value">${overlay.display_name}</span>
+                <div class="ov-actions">
+                    <button type="button" class="ui-btn ui-btn-icon" data-ov="preview" title="Preview both pictures" aria-label="Preview ${overlayEscape(name)}">${uiIcon('image', 16)}</button>
+                    <button type="button" class="ui-btn ui-btn-icon ui-danger" data-ov="delete" title="Delete" aria-label="Delete ${overlayEscape(name)}">${uiIcon('trash', 16)}</button>
                 </div>
-                <div class="overlay-info-row">
-                    <span class="overlay-label">Theme ID:</span>
-                    <span class="overlay-value">${overlay.theme_id}</span>
-                </div>
-                <div class="overlay-info-row">
-                    <span class="overlay-label">Desktop File:</span>
-                    <span class="overlay-value" style="font-size: 12px; word-break: break-all;">${overlay.desktop_filename}</span>
-                </div>
-                <div class="overlay-info-row">
-                    <span class="overlay-label">Mobile File:</span>
-                    <span class="overlay-value" style="font-size: 12px; word-break: break-all;">${overlay.mobile_filename}</span>
-                </div>
-                <div class="overlay-info-row">
-                    <span class="overlay-label">File Type:</span>
-                    <span class="overlay-value">${desktopFileType === mobileFileType ? desktopFileType : `Desktop ${desktopFileType} / Mobile ${mobileFileType}`}</span>
-                </div>
-                <div class="overlay-info-row">
-                    <span class="overlay-label">Display Order:</span>
-                    <span class="overlay-value">${overlay.display_order}</span>
-                </div>
-                ${overlay.created_at ? `
-                <div class="overlay-info-row">
-                    <span class="overlay-label">Created:</span>
-                    <span class="overlay-value">${new Date(overlay.created_at).toLocaleDateString()}</span>
-                </div>
-                ` : ''}
-            </div>
-            <div class="card-actions">
-                <div class="view-buttons">
-                    <button class="btn-view-overlay" onclick="viewOverlay('${overlay.desktop_filename}', '${overlay.mobile_filename}', '${overlay.display_name}', '${overlay.theme_id}')">
-                        🔍 Preview Both
-                    </button>
-                </div>
-                <div class="action-buttons">
-                    <button class="btn-delete" onclick="deleteOverlay(${overlay.id})">Delete</button>
-                </div>
-            </div>
-        `;
-        
-        overlayGrid.appendChild(overlayCard);
+            </div>`;
+        // the values go to the old functions as they are, never through a built onclick string
+        card.addEventListener('click', async (event) => {
+            const action = event.target.closest('[data-ov]')?.dataset.ov || 'open';
+            if (action === 'preview') viewOverlay(overlay.desktop_filename, overlay.mobile_filename, name, overlay.theme_id);
+            else if (action === 'delete') deleteOverlay(overlay.id);
+            else {
+                // the add form asks before what was typed in it is dropped
+                if (overlayAdding) { await closeAddOverlayModal(); if (overlayAdding) return; }
+                openOverlayPanel(overlay.id);
+            }
+        });
+        overlayGrid.appendChild(card);
     });
-}
 
-// View overlay function shows both desktop and mobile
-function viewOverlay(desktopImagePath, mobileImagePath, title, themeId) {
-    console.log('Viewing overlay:', title);
-    const safeTitle = title.replace(/[^a-zA-Z0-9]/g, '_');
-    const desktopExtension = getOverlayFileExtension(desktopImagePath);
-    const mobileExtension = getOverlayFileExtension(mobileImagePath);
-    
-    const overlayPopup = document.createElement('div');
-    overlayPopup.className = 'overlay-preview-popup';
-    overlayPopup.style.cssText = `
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0, 0, 0, 0.95);
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        z-index: 1001;
-        padding: 20px;
-        box-sizing: border-box;
-    `;
-
-    overlayPopup.innerHTML = `
-        <div class="overlay-preview-container" style="
-            background: white;
-            border-radius: 12px;
-            padding: 25px;
-            max-width: 900px;
-            max-height: 90vh;
-            width: 90vw;
-            height: auto;
-            text-align: center;
-            position: relative;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            display: flex;
-            flex-direction: column;
-            overflow-y: auto;
-        ">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; flex-shrink: 0;">
-                <h3 style="margin: 0; color: #1e293b; font-size: 20px;">${title}</h3>
-                <button onclick="closeOverlayPreview()" style="
-                    background: none;
-                    border: none;
-                    font-size: 24px;
-                    cursor: pointer;
-                    color: #64748b;
-                    padding: 5px 10px;
-                ">×</button>
-            </div>
-            
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; flex: 1;">
-                <!-- Desktop Preview -->
-                <div style="
-                    background: #f8fafc;
-                    border-radius: 8px;
-                    padding: 20px;
-                    display: flex;
-                    flex-direction: column;
-                ">
-                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
-                        <span style="font-size: 24px;">🖥️</span>
-                        <h4 style="margin: 0; color: #475569; font-size: 16px;">Desktop Version</h4>
-                    </div>
-                    
-                    <div style="
-                        flex: 1;
-                        display: flex;
-                        justify-content: center;
-                        align-items: center;
-                        background: white;
-                        border-radius: 6px;
-                        border: 1px solid #e2e8f0;
-                        padding: 15px;
-                        min-height: 300px;
-                    ">
-                        <img src="${desktopImagePath}" 
-                             alt="${title} - Desktop" 
-                             style="
-                                max-width: 100%;
-                                max-height: 300px;
-                                width: auto;
-                                height: auto;
-                                object-fit: contain;
-                                border-radius: 4px;
-                             "
-                             onerror="handleOverlayImageError(this, '${title} - Desktop')">
-                    </div>
-                    
-                    <div style="font-size: 12px; color: #64748b; margin-top: 10px; word-break: break-all;">
-                        ${desktopImagePath}
-                    </div>
-                    
-                    <button onclick="downloadOverlay('${desktopImagePath}', '${safeTitle}_desktop${desktopExtension}')" 
-                            style="
-                                margin-top: 15px;
-                                padding: 8px 16px;
-                                background: #0A1E81;
-                                color: white;
-                                border: none;
-                                border-radius: 6px;
-                                cursor: pointer;
-                                font-size: 14px;
-                                width: 100%;
-                            ">
-                        ⬇️ Download Desktop
-                    </button>
-                </div>
-                
-                <!-- Mobile Preview -->
-                <div style="
-                    background: #f8fafc;
-                    border-radius: 8px;
-                    padding: 20px;
-                    display: flex;
-                    flex-direction: column;
-                ">
-                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
-                        <span style="font-size: 24px;">📱</span>
-                        <h4 style="margin: 0; color: #475569; font-size: 16px;">Mobile Version</h4>
-                    </div>
-                    
-                    <div style="
-                        flex: 1;
-                        display: flex;
-                        justify-content: center;
-                        align-items: center;
-                        background: white;
-                        border-radius: 6px;
-                        border: 1px solid #e2e8f0;
-                        padding: 15px;
-                        min-height: 300px;
-                    ">
-                        <img src="${mobileImagePath}" 
-                             alt="${title} - Mobile" 
-                             style="
-                                max-width: 100%;
-                                max-height: 300px;
-                                width: auto;
-                                height: auto;
-                                object-fit: contain;
-                                border-radius: 4px;
-                             "
-                             onerror="handleOverlayImageError(this, '${title} - Mobile')">
-                    </div>
-                    
-                    <div style="font-size: 12px; color: #64748b; margin-top: 10px; word-break: break-all;">
-                        ${mobileImagePath}
-                    </div>
-                    
-                    <button onclick="downloadOverlay('${mobileImagePath}', '${safeTitle}_mobile${mobileExtension}')" 
-                            style="
-                                margin-top: 15px;
-                                padding: 8px 16px;
-                                background: #3b82f6;
-                                color: white;
-                                border: none;
-                                border-radius: 6px;
-                                cursor: pointer;
-                                font-size: 14px;
-                                width: 100%;
-                            ">
-                        ⬇️ Download Mobile
-                    </button>
-                </div>
-            </div>
-            
-            <div style="background: #f8fafc; padding: 20px; border-radius: 8px; border: 1px solid #e2e8f0; margin-top: 20px;">
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; font-size: 14px;">
-                    <div>
-                        <strong style="color: #475569; font-size: 13px;">Theme ID:</strong><br>
-                        <span class="text-theme">${themeId}</span>
-                    </div>
-                    <div>
-                        <strong style="color: #475569; font-size: 13px;">Display Name:</strong><br>
-                        <span class="text-theme">${title}</span>
-                    </div>
-                    <div>
-                        <strong style="color: #475569; font-size: 13px;">Previewed by:</strong><br>
-                        <span class="text-theme">${sessionStorage.getItem('loggedUser')}</span>
-                    </div>
-                </div>
-            </div>
-            
-            <div style="margin-top: 25px; text-align: center; flex-shrink: 0;">
-                <button onclick="closeOverlayPreview()" style="
-                    padding: 10px 30px;
-                    background: #64748b;
-                    color: white;
-                    border: none;
-                    border-radius: 8px;
-                    cursor: pointer;
-                    font-size: 16px;
-                    font-weight: 600;
-                ">
-                    Close Preview
-                </button>
-            </div>
-        </div>
-    `;
-
-    document.body.appendChild(overlayPopup);
-}
-
-// Close overlay preview
-function closeOverlayPreview() {
-    const popup = document.querySelector('.overlay-preview-popup');
-    if (popup) {
-        popup.remove();
+    // a panel that is open stays open on the same overlay, or closes when that overlay is gone
+    if (overlayOpenId !== null) {
+        if (overlayList.some((item) => Number(item.id) === overlayOpenId)) openOverlayPanel(overlayOpenId, false);
+        else closeOverlayPanel(false);
     }
 }
 
-// Handle overlay image error
-function handleOverlayImageError(imgElement, title) {
-    console.error('Failed to load overlay image:', imgElement.src);
-    
-    const container = imgElement.parentElement;
-    container.innerHTML = `
-        <div style="
-            width: 300px;
-            height: 200px;
-            background: #f8fafc;
-            border: 2px dashed #e2e8f0;
-            border-radius: 8px;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            color: #64748b;
-        ">
-            <div style="font-size: 48px; margin-bottom: 16px;">🖼️</div>
-            <div style="font-size: 14px; text-align: center;">
-                <div>Overlay image not found</div>
-                <div style="font-size: 12px; margin-top: 8px;">${title}</div>
-                <div style="font-size: 11px; margin-top: 4px; color: #94a3b8;">
-                    The image file may have been moved or deleted
-                </div>
+function openOverlayPanel(overlayId, focus = true) {
+    const id = Number(overlayId);
+    const overlay = overlayList.find((item) => Number(item.id) === id);
+    const panel = document.getElementById('overlay-panel');
+    if (!overlay || !panel) return;
+    const name = overlay.display_name || overlay.theme_id || `Overlay ${overlay.id}`;
+    overlayOpenId = id;
+    overlayAdding = false;
+    panel.innerHTML = `
+        <header class="ui-sidepanel-head">
+            <div>
+                <h3 id="overlay-panel-title" tabindex="-1">${overlayEscape(name)}</h3>
+                <p>Theme ID ${overlayEscape(overlay.theme_id)} · order ${overlayEscape(overlay.display_order)}</p>
+            </div>
+            <button type="button" class="ui-btn ui-btn-icon" data-ov="close" title="Close" aria-label="Close the details">${uiIcon('close', 16)}</button>
+        </header>
+        <div class="ui-sidepanel-body">
+            <div class="ov-panel-pics">
+                <figure>${overlayPicture(overlay.desktop_filename, 'desktop', 'large')}<figcaption>Desktop</figcaption></figure>
+                <figure>${overlayPicture(overlay.mobile_filename, 'mobile', 'large')}<figcaption>Mobile</figcaption></figure>
+            </div>
+            <dl class="ui-kv ov-facts">
+                <dt>ID</dt><dd>${overlayEscape(overlay.id)}</dd>
+                <dt>Theme ID</dt><dd><code>${overlayEscape(overlay.theme_id)}</code></dd>
+                <dt>Display order</dt><dd>${overlayEscape(overlay.display_order)}</dd>
+                <dt>File type</dt><dd>${overlayEscape(overlayTypeText(overlay))}</dd>
+                <dt>Desktop file</dt><dd class="ov-path">${overlayEscape(overlay.desktop_filename)}</dd>
+                <dt>Mobile file</dt><dd class="ov-path">${overlayEscape(overlay.mobile_filename)}</dd>
+                <dt>Added</dt><dd>${overlayEscape(overlayAddedText(overlay))}</dd>
+            </dl>
+        </div>
+        <footer class="ui-sidepanel-foot">
+            <button type="button" class="ui-btn ui-btn-danger" data-ov="delete">${uiIcon('trash', 15)}Delete this overlay</button>
+            <span class="ui-spacer"></span>
+            <button type="button" class="ui-btn ui-btn-secondary" data-ov="preview">${uiIcon('image', 15)}Preview both</button>
+        </footer>`;
+    panel.onclick = (event) => {
+        const action = event.target.closest('[data-ov]')?.dataset.ov;
+        if (action === 'close') closeOverlayPanel();
+        else if (action === 'preview') viewOverlay(overlay.desktop_filename, overlay.mobile_filename, name, overlay.theme_id);
+        else if (action === 'delete') deleteOverlay(overlay.id);
+    };
+    panel.hidden = false;
+    document.getElementById('overlay-page')?.classList.add('ui-has-sidepanel');
+    document.querySelectorAll('#overlay-page .ov-card.is-open').forEach((card) => card.classList.remove('is-open'));
+    document.querySelector(`#overlay-page .ov-card[data-overlay-id="${id}"]`)?.classList.add('is-open');
+    if (focus) document.getElementById('overlay-panel-title')?.focus({ preventScroll: true });
+}
+
+function closeOverlayPanel(refocus = true) {
+    if (overlayAdding) return; // the panel holds the add form, which closes itself
+    const panel = document.getElementById('overlay-panel');
+    const id = overlayOpenId;
+    overlayOpenId = null;
+    if (panel) { panel.hidden = true; panel.innerHTML = ''; }
+    document.getElementById('overlay-page')?.classList.remove('ui-has-sidepanel');
+    document.querySelectorAll('#overlay-page .ov-card.is-open').forEach((card) => card.classList.remove('is-open'));
+    if (refocus && id !== null) document.querySelector(`#overlay-page .ov-card[data-overlay-id="${id}"] .ov-name`)?.focus({ preventScroll: true });
+}
+
+// Escape closes the details or the add form (a dialog open over them handles its own Escape)
+document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || document.querySelector('dialog[open]')) return;
+    if (!document.getElementById('overlay-page')?.classList.contains('active')) return;
+    if (overlayAdding) { event.preventDefault(); closeAddOverlayModal(); return; }
+    if (overlayOpenId === null) return;
+    closeOverlayPanel();
+});
+// <Jun Kai end>
+
+// View overlay function shows both desktop and mobile
+// <Jun Kai start> The preview is a kit dialog (va-dialog): both pictures as on the cards, the file of each with a Download
+// button, and the theme ID. Escape and Close shut it; the values reach the buttons as data, never inside an onclick string.
+function viewOverlay(desktopImagePath, mobileImagePath, title, themeId) {
+    closeOverlayPreview(true);
+    const name = String(title || themeId || 'Overlay');
+    const safeTitle = name.replace(/[^a-zA-Z0-9]/g, '_');
+    const files = [
+        ['desktop', 'Desktop', desktopImagePath, `${safeTitle}_desktop${getOverlayFileExtension(desktopImagePath)}`],
+        ['mobile', 'Mobile', mobileImagePath, `${safeTitle}_mobile${getOverlayFileExtension(mobileImagePath)}`]
+    ];
+    const dialog = document.createElement('dialog');
+    dialog.className = 'va-dialog ov-preview-dialog';
+    dialog.id = 'overlay-preview-dialog';
+    dialog.setAttribute('aria-labelledby', 'overlay-preview-title');
+    dialog.innerHTML = `<div class="va-dialog-inner">
+        <div class="va-dialog-head">
+            <div>
+                <h3 id="overlay-preview-title">${overlayEscape(name)}</h3>
+                <div class="va-dialog-sub">Theme ID <code>${overlayEscape(themeId)}</code>. How the overlay sits on a visitor's photo.</div>
+            </div>
+            <button type="button" class="ui-btn ui-btn-icon va-dialog-close" data-ov-close aria-label="Close" title="Close">${uiIcon('close', 18)}</button>
+        </div>
+        <div class="va-dialog-body">
+            <div class="ov-preview-grid">
+                ${files.map(([kind, label, src, download], index) => `
+                <figure class="ov-preview-item">
+                    <figcaption>${label}</figcaption>
+                    <div class="ov-preview-frame">${overlayPicture(src, kind, 'large')}</div>
+                    <p class="ov-path">${overlayEscape(src || 'No file')}</p>
+                    <button type="button" class="ui-btn ui-btn-secondary" data-ov-download="${index}"${src ? '' : ' disabled'}>${uiIcon('download', 15)}Download ${label.toLowerCase()} picture</button>
+                </figure>`).join('')}
             </div>
         </div>
-    `;
+        <div class="va-dialog-foot">
+            <button type="button" class="ui-btn ui-btn-secondary" data-ov-close>Close</button>
+        </div>
+    </div>`;
+    dialog.addEventListener('click', (event) => {
+        if (event.target.closest('[data-ov-close]')) return closeOverlayPreview();
+        const button = event.target.closest('[data-ov-download]');
+        if (button) { const file = files[Number(button.dataset.ovDownload)]; downloadOverlay(file[2], file[3]); }
+    });
+    dialog.addEventListener('cancel', (event) => { event.preventDefault(); closeOverlayPreview(); });
+    const opener = document.activeElement;
+    dialog.addEventListener('close', () => {
+        dialog.remove();
+        if (opener && document.contains(opener) && typeof opener.focus === 'function') opener.focus();
+    });
+    document.body.appendChild(dialog);
+    dialog.showModal();
+    dialog.querySelector('.va-dialog-close').focus();
 }
+
+// Close overlay preview (now: at once, without the short fade)
+function closeOverlayPreview(now = false) {
+    const dialog = document.getElementById('overlay-preview-dialog');
+    if (!dialog || !dialog.open) return;
+    if (now || window.matchMedia('(prefers-reduced-motion: reduce)').matches) { dialog.close(); return; }
+    if (dialog.classList.contains('is-closing')) return;
+    dialog.classList.add('is-closing');
+    setTimeout(() => { if (dialog.open) dialog.close(); }, 150);
+}
+// <Jun Kai end>
 
 function getOverlayFileExtension(imagePath) {
     const cleanPath = String(imagePath || '').split('?')[0];
@@ -412,364 +293,259 @@ function downloadOverlay(imageUrl, filename) {
         })
         .catch(error => {
             console.error('Download error:', error);
-            alert('Error downloading overlay: ' + error.message);
+            showNotification(`The picture could not be downloaded: ${error.message}.`, 'error'); // <Jun Kai/>
         });
 }
 
 // Show add overlay modal (System Admin only)
+// <Jun Kai start> Add overlay opens in the page's side panel, where the details of an overlay show too, so adding and looking
+// feel the same. The server rules are checked here first, each under its own field: a name, a theme ID of lowercase
+// letters and numbers that no other overlay uses, and a desktop and a mobile picture (PNG or GIF, at most 10 MB each).
+// The server gives a new overlay the next place in the list itself, so the form says where it goes instead of asking.
+const OVERLAY_MAX_BYTES = 10 * 1024 * 1024;
+const OVERLAY_TYPES = ['image/png', 'image/gif'];
+let overlayAddOpener = null;
+let overlayThemeTouched = false;
+
 function showAddOverlayModal() {
-    const userRole = sessionStorage.getItem('userRole');
-    if (userRole !== 'system_admin') {
-        alert('Access denied. System Administrator privileges required.');
+    if (sessionStorage.getItem('userRole') !== 'system_admin') {
+        showNotification('Only a System Admin can add overlays.', 'error');
         return;
     }
-    
-    const modal = document.createElement('div');
-    modal.className = 'add-overlay-modal';
-    modal.style.cssText = `
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0, 0, 0, 0.8);
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        z-index: 1000;
-    `;
-    
-    modal.innerHTML = `
-        <div class="add-overlay-form" style="
-            background: white;
-            padding: 30px;
-            border-radius: 16px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            width: 90%;
-            max-width: 600px;
-        ">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px;">
-                <h3 style="margin: 0; color: #1e293b; font-size: 20px;">Add New Overlay</h3>
-                <button onclick="closeAddOverlayModal()" style="
-                    background: none;
-                    border: none;
-                    font-size: 24px;
-                    cursor: pointer;
-                    color: #64748b;
-                    padding: 5px 10px;
-                ">×</button>
+    const panel = document.getElementById('overlay-panel');
+    if (!panel) return;
+    if (!overlayAdding) overlayAddOpener = document.activeElement;
+    if (overlayOpenId !== null) closeOverlayPanel(false);
+    overlayAdding = true;
+    overlayThemeTouched = false;
+    const nextPlace = overlayList.reduce((max, item) => Math.max(max, Number(item.display_order) || 0), 0) + 1;
+    const picker = (kind, label, size, input) => `
+        <div class="ui-field ov-add-file">
+            <span class="ui-label" id="ov-add-${kind}-label">${label} picture</span>
+            <div class="ov-add-drop ov-add-drop-${kind}" id="ov-add-${kind}-box">
+                <span class="ov-add-empty">No picture chosen</span>
             </div>
-            
-            <form id="add-overlay-form" onsubmit="handleAddOverlay(event)">
-                <div class="form-group" class="mb-20">
-                    <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #1e293b;">
-                        Display Name *
-                    </label>
-                    <input type="text" id="overlay-display-name" 
-                        placeholder="Enter overlay display name"
-                        style="width: 100%; padding: 12px 16px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 15px;"
-                        required>
-                    <div style="font-size: 12px; color: #64748b; margin-top: 5px;">
-                        Name shown in the overlay selection menu
-                    </div>
-                </div>
-                
-                <div class="form-group" class="mb-20">
-                    <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #1e293b;">
-                        Theme ID *
-                    </label>
-                    <input type="text" id="overlay-theme-id" 
-                        placeholder="Enter theme ID (e.g., 'christmas', 'spring')"
-                        style="width: 100%; padding: 12px 16px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 15px;"
-                        required>
-                    <div style="font-size: 12px; color: #64748b; margin-top: 5px;">
-                        Unique identifier for the overlay theme
-                    </div>
-                </div>
-                
-                <div class="form-group" class="mb-20">
-                    <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #1e293b;">
-                        Display Order *
-                    </label>
-                    <input type="number" id="overlay-display-order" 
-                        placeholder="Enter display order (e.g., 1, 2, 3)"
-                        style="width: 100%; padding: 12px 16px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 15px;"
-                        min="1"
-                        value="1"
-                        required>
-                    <div style="font-size: 12px; color: #64748b; margin-top: 5px;">
-                        Determines position in the overlay selection menu
-                    </div>
-                </div>
-                
-                <!-- PNG/GIF overlay upload inputs with previews - changes made by nick -->
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
-                    <!-- Desktop Image -->
-                    <div class="form-group">
-                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #1e293b;">
-                            Desktop Image *
-                        </label>
-                        <input type="file" id="desktop-overlay-image" 
-                            accept=".png,.gif,image/png,image/gif"
-                            style="width: 100%; padding: 12px 16px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 15px;"
-                            required>
-                        <div style="font-size: 12px; color: #64748b; margin-top: 5px;">
-                            Recommended: 1920x1080px PNG or animated GIF
-                        </div>
-                        <div id="desktop-overlay-preview" class="overlay-upload-preview" style="display: none;"></div>
-                    </div>
-                    
-                    <!-- Mobile Image -->
-                    <div class="form-group">
-                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #1e293b;">
-                            Mobile Image *
-                        </label>
-                        <input type="file" id="mobile-overlay-image" 
-                            accept=".png,.gif,image/png,image/gif"
-                            style="width: 100%; padding: 12px 16px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 15px;"
-                            required>
-                        <div style="font-size: 12px; color: #64748b; margin-top: 5px;">
-                            Recommended: 1080x1920px PNG or animated GIF
-                        </div>
-                        <div id="mobile-overlay-preview" class="overlay-upload-preview" style="display: none;"></div>
-                    </div>
-                </div>
-                
-                <div id="add-overlay-error" style="
-                    color: #dc2626;
-                    font-size: 13px;
-                    margin-bottom: 15px;
-                    display: none;
-                "></div>
-                
-                <div id="add-overlay-success" style="
-                    color: #10b981;
-                    font-size: 13px;
-                    margin-bottom: 15px;
-                    display: none;
-                "></div>
-                
-                <div style="display: flex; gap: 12px;">
-                    <button type="button" onclick="closeAddOverlayModal()" style="
-                        flex: 1;
-                        padding: 12px;
-                        background: #64748b;
-                        color: white;
-                        border: none;
-                        border-radius: 8px;
-                        font-size: 14px;
-                        font-weight: 600;
-                        cursor: pointer;
-                    ">Cancel</button>
-                    <button type="submit" style="
-                        flex: 1;
-                        padding: 12px;
-                        background: linear-gradient(135deg, #10b981, #059669);
-                        color: white;
-                        border: none;
-                        border-radius: 8px;
-                        font-size: 14px;
-                        font-weight: 600;
-                        cursor: pointer;
-                    ">Add Overlay</button>
-                </div>
-            </form>
-        </div>
-    `;
-    
-    document.body.appendChild(modal);
-    initializeOverlayUploadPreviews();
-}
-
-// Attach preview handlers for desktop and mobile overlay uploads - changes made by nick
-function initializeOverlayUploadPreviews() {
-    const desktopInput = document.getElementById('desktop-overlay-image');
-    const mobileInput = document.getElementById('mobile-overlay-image');
-
-    if (desktopInput) {
-        desktopInput.addEventListener('change', () => {
-            showOverlayUploadPreview('desktop-overlay-image', 'desktop-overlay-preview');
-        });
-    }
-
-    if (mobileInput) {
-        mobileInput.addEventListener('change', () => {
-            showOverlayUploadPreview('mobile-overlay-image', 'mobile-overlay-preview');
-        });
-    }
-}
-
-// Show a selected PNG/GIF overlay preview below the file input - changes made by nick
-function showOverlayUploadPreview(inputId, previewId) {
-    const input = document.getElementById(inputId);
-    const preview = document.getElementById(previewId);
-    if (!input || !preview) return;
-
-    const file = input.files && input.files[0];
-    if (!file) {
-        clearOverlayUploadPreview(inputId, previewId);
-        return;
-    }
-
-    if (!['image/png', 'image/gif'].includes(file.type)) {
-        preview.innerHTML = `
-            <div class="overlay-upload-preview-error">
-                Please choose a PNG or animated GIF file.
+            <div class="ov-add-file-row">
+                ${input}
             </div>
-        `;
-        preview.style.display = 'block';
-        return;
-    }
-
-    const previewUrl = URL.createObjectURL(file);
-    preview.dataset.previewUrl = previewUrl;
-    preview.innerHTML = `
-        <div class="overlay-upload-preview-frame">
-            <button type="button" class="overlay-upload-remove" aria-label="Remove selected overlay"
-                onclick="clearOverlayUploadPreview('${inputId}', '${previewId}')">×</button>
-            <img src="${previewUrl}" alt="${file.name} preview">
-        </div>
-        <div class="overlay-upload-preview-name">${escapeHtmlSafe(file.name)}</div>
-    `;
-    preview.style.display = 'block';
+            <p class="ui-help" id="ov-add-${kind}-help">PNG or animated GIF, at most 10 MB. Best at ${size}. An animated GIF shows only its first frame here; the kiosk plays all of it.</p>
+            <p class="ui-help is-error ov-add-error" id="ov-add-${kind}-error" hidden></p>
+        </div>`;
+    panel.innerHTML = `
+        <form class="ov-add-form" id="ov-add-form" novalidate>
+            <header class="ui-sidepanel-head">
+                <div>
+                    <h3 id="overlay-panel-title" tabindex="-1">Add an overlay</h3>
+                    <p>Visitors can put it on their photo at the kiosk.</p>
+                </div>
+                <button type="button" class="ui-btn ui-btn-icon" data-ov-add="close" title="Close" aria-label="Close the add form">${uiIcon('close', 16)}</button>
+            </header>
+            <div class="ui-sidepanel-body">
+                <p class="ov-add-alert" id="ov-add-alert" role="alert" hidden></p>
+                <div class="ui-field">
+                    <label class="ui-label" for="ov-add-name">Name</label>
+                    <input type="text" class="ui-input" id="ov-add-name" maxlength="100" autocomplete="off" aria-describedby="ov-add-name-help">
+                    <p class="ui-help" id="ov-add-name-help">Shown to visitors in the list of overlays.</p>
+                    <p class="ui-help is-error ov-add-error" id="ov-add-name-error" hidden></p>
+                </div>
+                <div class="ui-field">
+                    <label class="ui-label" for="ov-add-theme">Theme ID</label>
+                    <input type="text" class="ui-input" id="ov-add-theme" maxlength="50" autocomplete="off" autocapitalize="none" spellcheck="false" aria-describedby="ov-add-theme-help">
+                    <p class="ui-help" id="ov-add-theme-help">Lowercase letters and numbers only. It names the picture files. Filled in from the name until you change it.</p>
+                    <p class="ui-help is-error ov-add-error" id="ov-add-theme-error" hidden></p>
+                </div>
+                ${picker('desktop', 'Desktop', '1920 × 1080', '<input type="file" class="pa-file" id="ov-add-desktop" accept=".png,.gif,image/png,image/gif" aria-labelledby="ov-add-desktop-label" aria-describedby="ov-add-desktop-help">')}
+                ${picker('mobile', 'Mobile', '1080 × 1920', '<input type="file" class="pa-file" id="ov-add-mobile" accept=".png,.gif,image/png,image/gif" aria-labelledby="ov-add-mobile-label" aria-describedby="ov-add-mobile-help">')}
+                <p class="ui-note ov-add-place">It goes at the end of the list, as number ${nextPlace}.</p>
+            </div>
+            <footer class="ui-sidepanel-foot">
+                <button type="button" class="ui-btn ui-btn-secondary" data-ov-add="close">Cancel</button>
+                <span class="ui-spacer"></span>
+                <button type="submit" class="ui-btn ui-btn-primary" id="ov-add-submit">${uiIcon('plus', 15)}Add overlay</button>
+            </footer>
+        </form>`;
+    panel.onclick = (event) => { if (event.target.closest('[data-ov-add="close"]')) closeAddOverlayModal(); };
+    const form = panel.querySelector('#ov-add-form');
+    form.addEventListener('submit', handleAddOverlay);
+    const nameInput = panel.querySelector('#ov-add-name');
+    const themeInput = panel.querySelector('#ov-add-theme');
+    nameInput.addEventListener('input', () => {
+        overlayAddFieldError('name', '');
+        if (!overlayThemeTouched) { themeInput.value = nameInput.value.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 50); overlayAddFieldError('theme', ''); }
+    });
+    themeInput.addEventListener('input', () => { overlayThemeTouched = true; overlayAddFieldError('theme', ''); });
+    ['desktop', 'mobile'].forEach((kind) => panel.querySelector(`#ov-add-${kind}`).addEventListener('change', () => showOverlayUploadPreview(kind)));
+    panel.hidden = false;
+    document.getElementById('overlay-page')?.classList.add('ui-has-sidepanel');
+    nameInput.focus({ preventScroll: true });
 }
 
-// Clear selected overlay file and remove its preview - changes made by nick
-function clearOverlayUploadPreview(inputId, previewId) {
-    const input = document.getElementById(inputId);
-    const preview = document.getElementById(previewId);
-
+function overlayAddFieldError(field, message) {
+    const error = document.getElementById(`ov-add-${field}-error`);
+    const input = document.getElementById(`ov-add-${field}`);
+    if (error) { error.textContent = message; error.hidden = !message; }
     if (input) {
-        input.value = '';
+        if (message) input.setAttribute('aria-invalid', 'true'); else input.removeAttribute('aria-invalid');
+        const help = `ov-add-${field}-help`;
+        input.setAttribute('aria-describedby', message ? `${help} ov-add-${field}-error` : help);
     }
-
-    if (preview) {
-        if (preview.dataset.previewUrl) {
-            URL.revokeObjectURL(preview.dataset.previewUrl);
-            delete preview.dataset.previewUrl;
-        }
-        preview.innerHTML = '';
-        preview.style.display = 'none';
-    }
+    return !message;
 }
 
-// Close add overlay modal
-function closeAddOverlayModal() {
-    const modal = document.querySelector('.add-overlay-modal');
-    if (modal) {
-        modal.remove();
-    }
+// what is wrong with a chosen picture, or '' when it is fine (the same rules as the server)
+function overlayFileProblem(file, label) {
+    if (!file) return `Choose a ${label} picture.`;
+    const extension = (file.name.match(/\.[a-z0-9]+$/i) || [''])[0].toLowerCase();
+    if (!OVERLAY_TYPES.includes(file.type) || !['.png', '.gif'].includes(extension)) return 'This file is not a PNG or GIF picture.';
+    if (file.size > OVERLAY_MAX_BYTES) return `This picture is ${(file.size / 1024 / 1024).toFixed(1)} MB. The most is 10 MB.`;
+    return '';
 }
 
-// Handle overlay creation with file upload
+// the chosen picture shows in its box, with its name and a Remove button. It is drawn into a canvas, so no address of the
+// file goes into the page; an animated GIF shows its first frame.
+async function showOverlayUploadPreview(kind) {
+    const input = document.getElementById(`ov-add-${kind}`);
+    const box = document.getElementById(`ov-add-${kind}-box`);
+    if (!input || !box) return;
+    clearOverlayUploadPreview(kind, false);
+    const file = input.files && input.files[0];
+    if (!file) return;
+    const problem = overlayFileProblem(file, kind);
+    overlayAddFieldError(kind, problem);
+    if (problem) return;
+    const canvas = document.createElement('canvas');
+    canvas.setAttribute('aria-hidden', 'true');
+    try {
+        const bitmap = await createImageBitmap(file);
+        canvas.width = bitmap.width;
+        canvas.height = bitmap.height;
+        canvas.getContext('2d').drawImage(bitmap, 0, 0);
+        bitmap.close();
+    } catch (error) {
+        overlayAddFieldError(kind, 'This picture could not be read. Choose another file.');
+        return;
+    }
+    if (input.files[0] !== file) return; // another file was chosen while this one was read
+    box.classList.add('has-picture');
+    // built from elements, so the file name is never read as HTML
+    const fileName = document.createElement('span');
+    fileName.className = 'ov-add-file-name';
+    fileName.textContent = file.name;
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'ui-btn ui-btn-icon ov-add-remove';
+    remove.setAttribute('aria-label', `Remove the ${kind} picture`);
+    remove.title = 'Remove';
+    remove.innerHTML = uiIcon('close', 14);
+    remove.addEventListener('click', () => clearOverlayUploadPreview(kind));
+    box.replaceChildren(canvas, fileName, remove);
+}
+
+function clearOverlayUploadPreview(kind, clearInput = true) {
+    const input = document.getElementById(`ov-add-${kind}`);
+    const box = document.getElementById(`ov-add-${kind}-box`);
+    if (input && clearInput) { input.value = ''; overlayAddFieldError(kind, ''); input.focus(); }
+    if (!box) return;
+    box.classList.remove('has-picture');
+    box.innerHTML = '<span class="ov-add-empty">No picture chosen</span>';
+}
+
+// a kit dialog gives the focus back to where it was once it has closed, so the focus is moved after that
+function overlayAfterDialog() {
+    return new Promise((resolve) => {
+        const wait = () => (document.querySelector('dialog.ui-dialog') ? setTimeout(wait, 20) : resolve());
+        wait();
+    });
+}
+
+// typed values are asked about before they are dropped
+async function closeAddOverlayModal(force = false) {
+    if (!overlayAdding) return;
+    const typed = ['ov-add-name', 'ov-add-theme'].some((id) => (document.getElementById(id)?.value || '').trim())
+        || ['ov-add-desktop', 'ov-add-mobile'].some((id) => document.getElementById(id)?.files?.length);
+    if (!force && typed && !(await uiConfirm({ title: 'Drop this overlay?', message: 'What you typed and the pictures you chose are not kept.', confirmText: 'Drop it', cancelText: 'Keep editing', danger: true }))) return;
+    ['desktop', 'mobile'].forEach((kind) => clearOverlayUploadPreview(kind, false));
+    overlayAdding = false;
+    const panel = document.getElementById('overlay-panel');
+    if (panel) { panel.hidden = true; panel.innerHTML = ''; panel.onclick = null; }
+    document.getElementById('overlay-page')?.classList.remove('ui-has-sidepanel');
+    const opener = overlayAddOpener;
+    overlayAddOpener = null;
+    await overlayAfterDialog();
+    const back = opener && document.contains(opener) ? opener : document.querySelector('#overlay-page .ui-page-header .ui-btn-primary');
+    back?.focus({ preventScroll: true });
+}
+
 async function handleAddOverlay(event) {
     event.preventDefault();
-    
-    const displayName = document.getElementById('overlay-display-name').value.trim();
-    const themeId = document.getElementById('overlay-theme-id').value.trim();
-    const displayOrder = document.getElementById('overlay-display-order').value;
-    const desktopFileInput = document.getElementById('desktop-overlay-image');
-    const mobileFileInput = document.getElementById('mobile-overlay-image');
-    const errorDiv = document.getElementById('add-overlay-error');
-    const successDiv = document.getElementById('add-overlay-success');
-    
-    // Hide previous messages
-    errorDiv.style.display = 'none';
-    successDiv.style.display = 'none';
-    
-    // Validate inputs
-    if (!displayName || !themeId || !displayOrder) {
-        errorDiv.textContent = 'All fields are required';
-        errorDiv.style.display = 'block';
+    const alertBox = document.getElementById('ov-add-alert');
+    alertBox.hidden = true;
+    const displayName = document.getElementById('ov-add-name').value.trim();
+    const themeId = document.getElementById('ov-add-theme').value.trim();
+    const desktop = document.getElementById('ov-add-desktop').files[0];
+    const mobile = document.getElementById('ov-add-mobile').files[0];
+    const checks = [
+        overlayAddFieldError('name', displayName ? '' : 'Type a name.'),
+        overlayAddFieldError('theme', !themeId ? 'Type a theme ID.'
+            : !/^[a-z0-9]+$/.test(themeId) ? 'Use lowercase letters and numbers only, no spaces.'
+                : overlayList.some((item) => String(item.theme_id) === themeId) ? 'Another overlay already uses this theme ID.' : ''),
+        overlayAddFieldError('desktop', overlayFileProblem(desktop, 'desktop')),
+        overlayAddFieldError('mobile', overlayFileProblem(mobile, 'mobile'))
+    ];
+    if (checks.includes(false)) {
+        document.querySelector('#ov-add-form [aria-invalid="true"]')?.focus();
         return;
     }
-    
-    if (!desktopFileInput.files[0] || !mobileFileInput.files[0]) {
-        errorDiv.textContent = 'Both desktop and mobile images are required';
-        errorDiv.style.display = 'block';
-        return;
-    }
-
-    // Validate admin overlay upload format before sending to backend - changes made by nick
-    const allowedOverlayTypes = ['image/png', 'image/gif'];
-    const uploadedOverlayFiles = [desktopFileInput.files[0], mobileFileInput.files[0]];
-    if (!uploadedOverlayFiles.every(file => allowedOverlayTypes.includes(file.type))) {
-        errorDiv.textContent = 'Overlay files must be PNG or animated GIF format.';
-        errorDiv.style.display = 'block';
-        return;
-    }
-    
+    const submit = document.getElementById('ov-add-submit');
+    submit.disabled = true;
+    submit.lastChild.textContent = 'Adding...';
     const username = sessionStorage.getItem('loggedUser');
-    const userRole = sessionStorage.getItem('userRole');
-    
-    if (userRole !== 'system_admin') {
-        errorDiv.textContent = 'Access denied. System Administrator privileges required.';
-        errorDiv.style.display = 'block';
-        return;
-    }
-    
     try {
-        // Create FormData for file upload
+        // the theme ID goes before the files: the server names the files after it while they arrive
         const formData = new FormData();
         formData.append('display_name', displayName);
         formData.append('theme_id', themeId);
-        formData.append('display_order', displayOrder);
-        formData.append('desktop_file', desktopFileInput.files[0]);
-        formData.append('mobile_file', mobileFileInput.files[0]);
+        formData.append('desktop_file', desktop);
+        formData.append('mobile_file', mobile);
         formData.append('username', username);
-        
-        const response = await fetch('/api/admin/overlays', {
-            method: 'POST',
-            headers: {
-                'x-username': username
-            },
-            body: formData
-        });
-        
-        const data = await response.json();
-        
-        if (data.success) {
-            successDiv.textContent = '✅ Overlay added successfully!';
-            successDiv.style.display = 'block';
-            
-            // Clear form after successful upload
-            document.getElementById('overlay-display-name').value = '';
-            document.getElementById('overlay-theme-id').value = '';
-            document.getElementById('overlay-display-order').value = '1';
-            desktopFileInput.value = '';
-            mobileFileInput.value = '';
-            
-            // Refresh overlay data after a delay
-            setTimeout(() => {
-                closeAddOverlayModal();
-                loadOverlayData();
-            }, 1500);
-        } else {
-            errorDiv.textContent = data.error || 'Failed to add overlay';
-            errorDiv.style.display = 'block';
-        }
+        const response = await fetch('/api/admin/overlays', { method: 'POST', headers: { 'x-username': username }, body: formData });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.success) throw new Error(data.error || `HTTP ${response.status}`);
+        await closeAddOverlayModal(true);
+        showNotification(`Overlay "${displayName}" added.`, 'success');
+        await loadOverlayData();
+        if (data.overlay && data.overlay.id) openOverlayPanel(data.overlay.id);
     } catch (error) {
         console.error('Error adding overlay:', error);
-        errorDiv.textContent = 'Error adding overlay: ' + error.message;
-        errorDiv.style.display = 'block';
+        alertBox.textContent = `The overlay was not added: ${error.message}`;
+        alertBox.hidden = false;
+        submit.disabled = false;
+        submit.lastChild.textContent = 'Add overlay';
     }
 }
+// <Jun Kai end>
 
 // Delete overlay (System Admin only)
+// <Jun Kai start> the kit confirm names the overlay; a dangerous step starts on Cancel
 async function deleteOverlay(overlayId) {
-    const userRole = sessionStorage.getItem('userRole');
-    if (userRole !== 'system_admin') {
-        alert('Access denied. System Administrator privileges required.');
+    if (sessionStorage.getItem('userRole') !== 'system_admin') {
+        showNotification('Only a System Admin can delete overlays.', 'error');
         return;
     }
-    
-    if (confirm(`Are you sure you want to delete this overlay? This action cannot be undone.`)) {
-        await performOverlayDeletion(overlayId);
-    }
+    const overlay = overlayList.find((item) => Number(item.id) === Number(overlayId));
+    const name = overlay ? (overlay.display_name || overlay.theme_id) : 'this overlay';
+    const sure = await uiConfirm({
+        title: `Delete ${overlay ? `"${name}"` : name}?`,
+        message: 'Visitors can no longer pick it at the kiosk. This cannot be undone.',
+        confirmText: 'Delete overlay',
+        danger: true
+    });
+    if (sure) await performOverlayDeletion(overlayId, name);
 }
+// <Jun Kai end>
 
 // Execute overlay deletion
-async function performOverlayDeletion(overlayId) {
+async function performOverlayDeletion(overlayId, name = 'The overlay') {
     const username = sessionStorage.getItem('loggedUser');
     
     try {
@@ -783,15 +559,21 @@ async function performOverlayDeletion(overlayId) {
         
         const data = await response.json();
         
+        // <Jun Kai start> a short note instead of an alert box; the details of a deleted overlay close
         if (data.success) {
-            alert('✅ Overlay deleted successfully!');
-            loadOverlayData();
+            if (overlayOpenId === Number(overlayId)) closeOverlayPanel(false);
+            showNotification(`${name === 'this overlay' ? 'The overlay' : `"${name}"`} was deleted.`, 'success');
+            await loadOverlayData();
+            // the button that asked is gone with the overlay: the focus goes to the first card, or to Add overlay
+            await overlayAfterDialog();
+            (document.querySelector('#overlay-page .ov-card .ov-name') || document.querySelector('#overlay-page .ui-page-header .ui-btn-primary'))?.focus({ preventScroll: true });
         } else {
-            alert('❌ Failed to delete overlay: ' + (data.error || 'Unknown error'));
+            showNotification(`The overlay was not deleted: ${data.error || 'unknown error'}.`, 'error');
         }
     } catch (error) {
         console.error('Error deleting overlay:', error);
-        alert('❌ Error deleting overlay: ' + error.message);
+        showNotification(`The overlay was not deleted: ${error.message}.`, 'error');
     }
+    // <Jun Kai end>
 }
 

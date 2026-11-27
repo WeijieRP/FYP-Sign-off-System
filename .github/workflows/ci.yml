@@ -30,10 +30,11 @@ jobs:
       pull-requests: read
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
+      install: ${{ steps.filter.outputs.install }} # <Jun Kai/>
     steps:
       - uses: actions/checkout@v7
       - id: filter
-        uses: dorny/paths-filter@v4
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4, pinned to the commit
         with:
           filters: |
             backend:
@@ -45,6 +46,21 @@ jobs:
               - 'tests/**'
               - 'scripts/**'
               - '.github/workflows/ci.yml'
+              - '.github/scripts/scan-report.js' # <Jun Kai/>
+            # <Jun Kai start> what the offline package and its install test depend on
+            install:
+              - 'scripts/install/**'
+              - 'tests/install/**'
+              - 'database/**'
+              - 'backend/core/db.js'
+              - 'package.json'
+              - 'package-lock.json'
+              - '.nvmrc'
+              - 'startAll.js'
+              - 'restart-app.bat'
+              - '.github/workflows/ci.yml'
+              - '.github/workflows/release.yml'
+            # <Jun Kai end>
 
   # ------------------------------------------------------------------ PR title, forbidden files, size
   pr-rules:
@@ -191,12 +207,12 @@ jobs:
       # occasional EPERM while Defender scans the unzipped folder. Both attempts failing still fails the job.
       - id: mysql-first-try
         if: runner.os != 'Windows' || steps.win-mysql.outputs.started != 'true'
-        uses: ankane/setup-mysql@v1
+        uses: ankane/setup-mysql@d771aa74d6ea539d50a55296b7d18ac9feb9fd23 # v1, pinned to the commit
         continue-on-error: true
         with:
           mysql-version: '8.4'
       - if: steps.mysql-first-try.outcome == 'failure'
-        uses: ankane/setup-mysql@v1
+        uses: ankane/setup-mysql@d771aa74d6ea539d50a55296b7d18ac9feb9fd23 # v1, pinned to the commit
         with:
           mysql-version: '8.4'
       - run: npm ci
@@ -218,7 +234,22 @@ jobs:
           EOF
       - name: Boot both servers and run the smoke checks
         shell: bash
-        run: node tests/smoke.js
+        # <Jun Kai start>
+        run: node tests/smoke.js --archive
+        # <Jun Kai end>
+      # <Jun Kai start>
+      # The install scripts on a clean Windows PowerShell 5.1: the read-only check, then dry runs that change nothing
+      - name: Install scripts (check and dry runs)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          .\scripts\install\install.ps1 -Check -NonInteractive
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\scripts\install\install.ps1 -DryRun -Role WallPC -NonInteractive
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\scripts\install\uninstall.ps1 -DryRun -NonInteractive -RemoveData -ConfirmDatabase dp_kiosk_db
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      # <Jun Kai end>
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -227,10 +258,220 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+  # ------------------------------------------------------------------ vulnerability scans
+  # <Jun Kai start>
+  # Scan 1 of 3, the packages: npm audit compares package-lock.json with the list of known vulnerabilities
+  # (nothing is installed). A high or critical finding fails the job, lower ones are listed in the run summary.
+  dependency-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      - name: npm audit (high and critical fail)
+        run: |
+          for attempt in 1 2 3; do
+            npm audit --json > npm-audit.json || true
+            if grep -q '"metadata"' npm-audit.json; then break; fi
+            echo "no answer from the registry (attempt $attempt), trying again"; sleep 10
+          done
+          node .github/scripts/scan-report.js audit npm-audit.json
+
+  # Scan 2 of 3, the project's own code: CodeQL (GitHub's code scanner) follows the data through the code and
+  # reports security mistakes such as injection or a missing check. The findings go to the repository's Security
+  # tab (Code scanning) and are listed in the run summary. On a pull request GitHub marks the ones the change adds.
+  code-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript, actions]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: |
+            backend
+            frontend
+            database
+            tests
+            scripts
+            .github
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-extended
+          # the tests and the CI scripts never run on the kiosk PC, so their findings would only hide the real ones
+          config: |
+            paths-ignore:
+              - tests
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:${{ matrix.language }}
+          output: codeql-results
+      - name: List the findings
+        run: node .github/scripts/scan-report.js codeql codeql-results
+
+  # Scan 3 of 3, the running servers: both servers are started on the runner and OWASP ZAP (a web security
+  # scanner) opens the pages a visitor or an attacker can reach without signing in. It only reads the answers
+  # (missing security headers, weak cookies, leaked details); it sends no attacks. Listed in the run summary,
+  # full reports in the "zap-reports" download.
+  app-scan:
+    needs: [changes, static]
+    if: always() && needs.static.result == 'success' && (github.event_name != 'pull_request' || needs.changes.outputs.backend == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DB_HOST: 127.0.0.1
+      DB_USER: kiosk_user
+      DB_PASSWORD: kiosk123
+      DB_NAME: dp_kiosk_db
+      ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000' # gitleaks:allow
+      SESSION_SECRET: ci-only-session-secret
+      PLEDGE_SENTIMENT_MODE: rules
+      KIOSK_AUTOMATION: off
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: |
+            backend
+            frontend
+            database
+            tests
+            scripts
+            assets/overlays
+            assets/static
+            .github
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - uses: ankane/setup-mysql@d771aa74d6ea539d50a55296b7d18ac9feb9fd23 # v1, pinned to the commit
+        with:
+          mysql-version: '8.4'
+      - run: npm ci
+      - name: Folders, database and blank email settings (the same as the smoke test)
+        run: |
+          mkdir -p uploads/photos uploads/processed logs backend/cache zap
+          node tests/ci-db-setup.js
+          node database/migrate.js up
+          cat > backend/config/defaults/emailConfig.json <<'EOF'
+          {"provider":"gmail","senderEmail":"","senderName":"CI","gmail":{"user":"","pass":""},"outlook":{"user":"","pass":""},"custom":{"host":"","port":587,"secure":false,"user":"","pass":""}}
+          EOF
+      - name: Start both servers
+        run: |
+          nohup node startAll.js > logs/scan-server.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -sk -o /dev/null https://localhost:3000/admin && curl -s -o /dev/null http://localhost:3003/feedback; then echo "both servers answer"; exit 0; fi
+            sleep 2
+          done
+          cat logs/scan-server.log
+          echo "::error::the servers did not start within 2 minutes"; exit 1
+      - name: Scan the pages that need no sign-in
+        run: |
+          chmod 777 zap
+          scan() { # name, address
+            docker run --rm --user root --network host -v "$PWD/zap:/zap/wrk:rw" ghcr.io/zaproxy/zaproxy:stable \
+              zap-baseline.py -t "$2" -m 1 -I -J "$1.json" -r "$1.html" || echo "::warning::ZAP ended with an error on $2"
+          }
+          scan admin-login       https://localhost:3000/admin
+          scan admin-feedback    https://localhost:3000/feedback/
+          scan admin-pledgeboard https://localhost:3000/pledgeboard/
+          scan admin-tree        https://localhost:3000/tree/
+          scan kiosk-feedback    http://localhost:3003/feedback
+      - name: List the findings
+        if: always()
+        run: node .github/scripts/scan-report.js zap zap
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: zap-reports
+          path: |
+            zap/*.html
+            zap/*.json
+            logs/scan-server.log
+          retention-days: 14
+          if-no-files-found: ignore
+  # <Jun Kai end>
+
   # ------------------------------------------------------------------ the one required check
+  # ------------------------------------------------------------------ the offline package on Windows
+  # <Jun Kai start>
+  # Builds the offline zip, then does on a Windows runner what a PC at the centre would: the one command install
+  # from a download (Wall PC, MySQL service, firewall rule), a repair, an update, two failed updates that must put
+  # everything back, a refused older package, an export, an uninstall that keeps the data, a reinstall that finds
+  # it, a full uninstall, a laptop install that loads the exported data, and a failed fresh install. After every
+  # uninstall it checks that no folder, service, firewall rule, shortcut, scheduled task or program is left.
+  package:
+    needs: [changes, static]
+    if: always() && needs.static.result == 'success' && (github.event_name != 'pull_request' || needs.changes.outputs.install == 'true')
+    runs-on: windows-latest
+    timeout-minutes: 75
+    env:
+      KIOSK_ADMIN_PASSWORD: ci-only-admin-password # gitleaks:allow
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # the build number is the number of commits
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Cache the Node.js and MySQL downloads
+        uses: actions/cache@v5
+        with:
+          path: C:\rpkb\cache
+          key: kiosk-runtime-${{ hashFiles('scripts/install/runtime.js') }}
+      - name: Build the offline package
+        run: node scripts/install/build-package.js --out C:\rpkb
+      - name: Passphrase lock and installer checks (no install)
+        shell: powershell
+        run: |
+          .\tests\install\kiosk-data.test.ps1
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          .\tests\install\installer-checks.test.ps1
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Install, update, failed updates, uninstall, nothing left
+        shell: powershell
+        run: |
+          .\tests\install\package-flow.ps1 -Dist C:\rpkb\dist
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Package size
+        if: always()
+        shell: powershell
+        run: Get-ChildItem C:\rpkb\dist -ErrorAction SilentlyContinue | ForEach-Object { "{0,-45} {1,8:N0} MB" -f $_.Name, ($_.Length / 1MB) }
+      # the logs sit on C: and outside the workspace, which upload-artifact cannot take: copied in first
+      - name: Collect the install logs
+        if: failure()
+        shell: powershell
+        run: |
+          $to = Join-Path $env:GITHUB_WORKSPACE 'install-logs'
+          New-Item -ItemType Directory -Path $to -Force | Out-Null
+          foreach ($from in @((Join-Path $env:TEMP 'rp-xperience-kiosk'), 'C:\RPXK\data\logs', 'C:\RPXK2\data\logs', 'C:\RPXK3\data\logs')) {
+            if (Test-Path $from) { Copy-Item -Path (Join-Path $from '*') -Destination $to -Force -ErrorAction SilentlyContinue }
+          }
+          foreach ($err in @('C:\RPXK\mysql-data\mysqld.err', 'C:\RPXK2\mysql-data\mysqld.err', 'C:\RPXK3\mysql-data\mysqld.err')) {
+            if (Test-Path $err) { Copy-Item $err (Join-Path $to ((Split-Path (Split-Path (Split-Path $err)) -Leaf) + '-mysqld.err')) -ErrorAction SilentlyContinue }
+          }
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: install-logs
+          path: install-logs
+          retention-days: 7
+          if-no-files-found: ignore
+  # <Jun Kai end>
+
   ci-summary:
     if: ${{ !cancelled() }}
-    needs: [changes, pr-rules, secret-scan, static, smoke]
+    needs: [changes, pr-rules, secret-scan, static, smoke, dependency-audit, package] # <Jun Kai/> dependency-audit, package
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

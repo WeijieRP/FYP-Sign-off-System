@@ -13,6 +13,7 @@
 // ============================================================
 
 const https = require('https');
+const aiSettings = require('../aiSettings/store'); // <Jun Kai/> the AI Settings page
 
 let localClassifier = null;
 
@@ -191,7 +192,8 @@ async function analyzeWithOnlineAI(pledgeText) {
 
 async function analyzePledgeSentiment(pledgeText) {
     const ruleResult = detectPledgeSentimentRule(pledgeText);
-    const mode = String(process.env.PLEDGE_SENTIMENT_MODE || 'hybrid').toLowerCase();
+    // <Jun Kai/> the AI Settings page can switch the AI part off: then word rules only, nothing is sent online
+    const mode = aiSettings.on('pledgeCheck') ? String(process.env.PLEDGE_SENTIMENT_MODE || 'hybrid').toLowerCase() : 'rules';
 
     if (!String(pledgeText || '').trim()) {
         return { ...ruleResult, moderationStatus: getModerationStatus(ruleResult.sentiment) };

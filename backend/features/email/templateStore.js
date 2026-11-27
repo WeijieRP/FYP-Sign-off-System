@@ -31,7 +31,7 @@ const CONFIG_PATH = paths.dataFile('badgeEmailTemplates.json');
 const DEFAULT_TEMPLATES = {
   'feedback-completer': {
     subject: 'Congratulations on Earning Your Feedback Contributor Badge!',
-    message: 'Thank you for sharing your feedback with the RP ESG Centre. Your comments help us improve the visitor experience.',
+    message: 'Thank you for sharing your feedback with the RP Xperience Centre. Your comments help us improve the visitor experience.',
     highlights: [
       'Your feedback supports better ESG learning experiences for future visitors.',
       'Look out for the growing digital tree, where every contribution adds momentum.'
@@ -88,6 +88,7 @@ const DEFAULT_TEMPLATES = {
 };
 
 const ACTIVE_TEMPLATE_KEYS = Object.keys(DEFAULT_TEMPLATES);
+const OLD_CENTRE_NAME_MESSAGE = 'Thank you for sharing your feedback with the RP ESG Centre. Your comments help us improve the visitor experience.'; // <Jun Kai/>
 
 function ensureConfigFile() {
   const dir = path.dirname(CONFIG_PATH);
@@ -120,6 +121,11 @@ function getBadgeEmailTemplates() {
     ACTIVE_TEMPLATE_KEYS.forEach((key) => {
       if (stored && stored[key]) normalizedStored[key] = normalizeTemplate(stored[key]);
     });
+    // <Jun Kai start> the centre was renamed (18 Nov 2026): a saved message that is still exactly the old default is
+    // shown as the new default, a message an admin wrote is never changed
+    const feedbackBadge = normalizedStored['feedback-completer'];
+    if (feedbackBadge && feedbackBadge.message === OLD_CENTRE_NAME_MESSAGE) feedbackBadge.message = DEFAULT_TEMPLATES['feedback-completer'].message;
+    // <Jun Kai end>
 
     return {
       ...DEFAULT_TEMPLATES,

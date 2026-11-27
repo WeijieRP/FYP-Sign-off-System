@@ -2,193 +2,60 @@
 // Part 12/30 of the admin page: decrypted email popup (load order in admin.html).
 // ==================== 11. EMAIL MANAGEMENT ====================
 
-// Custom password prompt with hidden input (replacement for native prompt)
-// Returns a Promise that resolves with the password or null if cancelled
-function showPasswordPrompt(message) {
+// <Jun Kai start> The password window and the email window in the kit look (kit dialogs of uiKit.js, 26 Nov 2026).
+// showPasswordPrompt(message) still resolves with the typed password, or null when it is cancelled (lostFound.js,
+// submissionList.js and encryption.js call it). The first paragraph of the message is the title, the rest the text.
+// Options: check(password) runs while the window stays open (an error text keeps it open for another try, nothing
+// closes it), and title, label, confirmText, danger and rootClass. The window keeps the old class
+// password-prompt-modal, so the Feedback and Archived Feedback pages leave their side panel open on Escape.
+function showPasswordPrompt(message, options = {}) {
+    const text = String(message || '');
+    const cut = text.indexOf('\n\n');
+    const head = cut >= 0 ? text.slice(0, cut) : text;
+    // the last "Enter your ... password:" line becomes the field's label, so it is not said twice
+    const rest = (cut >= 0 ? text.slice(cut + 2) : '').replace(/\s*Enter your[^.\n]*password:?\s*$/i, '').trim();
+    const admin = /System Admin/i.test(text);
+    const ask = uiPrompt({
+        title: options.title || head.replace(/^[^\p{L}\p{N}]+/u, '').trim(),
+        message: options.title ? text : rest,
+        label: options.label || (admin ? 'System Admin password' : 'Your password'),
+        type: 'password',
+        confirmText: options.confirmText || 'Continue',
+        danger: !!options.danger,
+        emptyText: 'Type your password first.',
+        check: options.check
+    });
+    markNewestDialog(`password-prompt-modal ${options.rootClass || ''}`);
+    return ask;
+}
+
+// the kit dialog that just opened is the last one in the page; the old class names on it let other pages see it
+function markNewestDialog(classNames) {
+    const open = document.querySelectorAll('body > dialog.ui-dialog[open]');
+    const dialog = open[open.length - 1];
+    if (dialog) dialog.classList.add(...String(classNames).split(' ').filter(Boolean));
+    return dialog;
+}
+
+// waits until a dialog has closed and left the page, so a page can move the focus after it
+function dialogClosed(dialog) {
     return new Promise((resolve) => {
-        // Create modal overlay
-        const modal = document.createElement('div');
-        modal.style.cssText = `
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.75);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            z-index: 10000;
-        `;
-        
-        // Create prompt box
-        const promptBox = document.createElement('div');
-        promptBox.style.cssText = `
-            background: white;
-            padding: 25px;
-            border-radius: 12px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
-            width: 90%;
-            max-width: 400px;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        `;
-        
-        promptBox.innerHTML = `
-            <div style="margin-bottom: 20px;">
-                <div style="font-size: 16px; font-weight: 600; color: #1e293b; margin-bottom: 8px; white-space: pre-line;">${message}</div>
-            </div>
-            <input type="password" id="password-prompt-input" 
-                placeholder="Enter password" 
-                style="
-                    width: 100%;
-                    padding: 10px 12px;
-                    border: 2px solid #e2e8f0;
-                    border-radius: 6px;
-                    font-size: 14px;
-                    box-sizing: border-box;
-                    margin-bottom: 15px;
-                "
-            />
-            <div style="display: flex; gap: 10px; justify-content: flex-end;">
-                <button id="password-prompt-cancel" style="
-                    padding: 8px 16px;
-                    background: #e2e8f0;
-                    color: #475569;
-                    border: none;
-                    border-radius: 6px;
-                    font-size: 14px;
-                    font-weight: 600;
-                    cursor: pointer;
-                ">Cancel</button>
-                <button id="password-prompt-ok" style="
-                    padding: 8px 16px;
-                    background: #0A1E81;
-                    color: white;
-                    border: none;
-                    border-radius: 6px;
-                    font-size: 14px;
-                    font-weight: 600;
-                    cursor: pointer;
-                ">OK</button>
-            </div>
-        `;
-        
-        modal.appendChild(promptBox);
-        document.body.appendChild(modal);
-        
-        const input = document.getElementById('password-prompt-input');
-        const okBtn = document.getElementById('password-prompt-ok');
-        const cancelBtn = document.getElementById('password-prompt-cancel');
-        
-        // Focus input
-        setTimeout(() => input.focus(), 100);
-        
-        // Handle OK button
-        const handleOk = () => {
-            const password = input.value;
-            modal.remove();
-            resolve(password || null);
-        };
-        
-        // Handle Cancel button
-        const handleCancel = () => {
-            modal.remove();
-            resolve(null);
-        };
-        
-        okBtn.addEventListener('click', handleOk);
-        cancelBtn.addEventListener('click', handleCancel);
-        
-        // Handle Enter key
-        input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-                handleOk();
-            } else if (e.key === 'Escape') {
-                handleCancel();
-            }
-        });
-        
-        // Handle click outside
-        modal.addEventListener('click', (e) => {
-            if (e.target === modal) {
-                handleCancel();
-            }
-        });
+        if (!dialog || !dialog.isConnected) return resolve();
+        dialog.addEventListener('close', () => setTimeout(resolve, 0), { once: true });
     });
 }
 
-// Show email in popup
+// Show the decrypted email of one feedback (plain text only)
 function showEmailPopup(feedbackId, decryptedEmail) {
-    const emailPopup = document.createElement('div');
-    emailPopup.className = 'email-popup';
-    emailPopup.style.cssText = `
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0, 0, 0, 0.95);
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        z-index: 1001;
-    `;
-
-    emailPopup.innerHTML = `
-        <div class="email-container" style="
-            background: white;
-            padding: 25px;
-            border-radius: 12px;
-            max-width: 500px;
-            max-height: 300px;
-            text-align: center;
-            position: relative;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-        ">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                <h3 style="margin: 0; color: #1e293b;">Decrypted Email - ID: ${feedbackId}</h3>
-                <button onclick="closeEmailPopup()" style="
-                    background: none;
-                    border: none;
-                    font-size: 24px;
-                    cursor: pointer;
-                    color: #64748b;
-                    padding: 5px 10px;
-                ">×</button>
-            </div>
-            
-            <div style="
-                background: #f8fafc;
-                padding: 20px;
-                border-radius: 8px;
-                border: 2px solid #e2e8f0;
-                margin-bottom: 20px;
-                word-break: break-all;
-            ">
-                <div style="font-size: 14px; color: #64748b; margin-bottom: 8px;">Decrypted Email:</div>
-                <div style="font-size: 16px; font-weight: 600; color: #1e293b;">${decryptedEmail}</div>
-            </div>
-            
-            <div style="font-size: 12px; color: #64748b; margin-bottom: 15px;">
-                Email accessed by: ${sessionStorage.getItem('loggedUser')} at ${new Date().toLocaleTimeString()}
-            </div>
-            
-            <button onclick="closeEmailPopup()" style="
-                padding: 8px 16px;
-                background: #0A1E81;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                cursor: pointer;
-                font-size: 12px;
-            ">
-                Close
-            </button>
-        </div>
-    `;
-
-    document.body.appendChild(emailPopup);
+    const who = sessionStorage.getItem('loggedUser') || 'you';
+    uiAlert({
+        title: 'Decrypted email',
+        message: `Feedback ${feedbackId}\n\n${decryptedEmail}\n\nShown to ${who} at ${new Date().toLocaleTimeString()}`,
+        confirmText: 'Close'
+    });
+    markNewestDialog('email-popup');
 }
+// <Jun Kai end>
 
 // Close email modal
 function closeEmailModal() {
@@ -201,9 +68,6 @@ function closeEmailModal() {
 
 // Close email popup
 function closeEmailPopup() {
-    const popup = document.querySelector('.email-popup');
-    if (popup) {
-        popup.remove();
-    }
+    const popup = document.querySelector('dialog.email-popup[open]'); // <Jun Kai/> its own button closes the kit dialog
+    if (popup) popup.querySelector('[data-ui-ok]').click();
 }
-

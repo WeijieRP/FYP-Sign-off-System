@@ -7,212 +7,101 @@ async function viewRawPhoto(feedbackId) {
     showRawPhotoPopup(feedbackId);
 }
 
-// View processed photo 
+// View processed photo
 async function viewProcessedPhoto(feedbackId) {
     showProcessedPhotoPopup(feedbackId);
 }
 
-// Show raw photo in popup
-function showRawPhotoPopup(feedbackId) {
+// <Jun Kai start> the raw and the processed photo open the same way: from the loaded row, or from the server when the
+// row is not loaded. Messages show as notifications (no browser box).
+function showPhotoOfKind(feedbackId, field, photoType) {
+    const missing = `No ${photoType.toLowerCase()} photo available for this feedback`;
     const loaded = findLoadedFeedbackRow(feedbackId);
     if (loaded) {
-        if (!loaded.photo_path) return alert('No raw photo available for this feedback');
-        return createPhotoPopup(feedbackId, loaded.photo_path, 'Raw');
+        if (!loaded[field]) return showNotification(missing, 'info');
+        return createPhotoPopup(feedbackId, loaded[field], photoType);
     }
-    // First, get the photo path from the feedback data
     fetch('/api/admin/feedback')
         .then(response => response.json())
         .then(data => {
-            if (data.success) {
-                const feedback = data.feedback.find(f => f.id === feedbackId);
-                if (!feedback) {
-                    alert('Feedback not found');
-                    return;
-                }
-
-                const photoPath = feedback.photo_path;
-                if (!photoPath) {
-                    alert('No raw photo available for this feedback');
-                    return;
-                }
-
-                createPhotoPopup(feedbackId, photoPath, 'Raw');
-            }
+            if (!data.success) return showNotification('Could not load the photo information', 'error');
+            const feedback = data.feedback.find(f => Number(f.id) === Number(feedbackId));
+            if (!feedback) return showNotification('That feedback was not found', 'error');
+            if (!feedback[field]) return showNotification(missing, 'info');
+            createPhotoPopup(feedbackId, feedback[field], photoType);
         })
         .catch(error => {
             console.error('Error fetching feedback data:', error);
-            alert('Error loading photo information');
+            showNotification('Could not load the photo information', 'error');
         });
+}
+// <Jun Kai end>
+
+// Show raw photo in popup
+function showRawPhotoPopup(feedbackId) {
+    showPhotoOfKind(feedbackId, 'photo_path', 'Raw'); // <Jun Kai/>
 }
 
 // Show processed photo in popup
 function showProcessedPhotoPopup(feedbackId) {
-    const loaded = findLoadedFeedbackRow(feedbackId);
-    if (loaded) {
-        if (!loaded.processed_photo_path) return alert('No processed photo available for this feedback');
-        return createPhotoPopup(feedbackId, loaded.processed_photo_path, 'Processed');
-    }
-    // First, get the photo path from the feedback data
-    fetch('/api/admin/feedback')
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                const feedback = data.feedback.find(f => f.id === feedbackId);
-                if (!feedback) {
-                    alert('Feedback not found');
-                    return;
-                }
-
-                const photoPath = feedback.processed_photo_path;
-                if (!photoPath) {
-                    alert('No processed photo available for this feedback');
-                    return;
-                }
-
-                createPhotoPopup(feedbackId, photoPath, 'Processed');
-            }
-        })
-        .catch(error => {
-            console.error('Error fetching feedback data:', error);
-            alert('Error loading photo information');
-        });
+    showPhotoOfKind(feedbackId, 'processed_photo_path', 'Processed'); // <Jun Kai/>
 }
 
 // Generic function to create photo popup Same size for both raw and processed
 function createPhotoPopup(feedbackId, photoPath, photoType) {
-    // Create photo popup
-    const photoPopup = document.createElement('div');
-    photoPopup.className = 'photo-popup';
-    photoPopup.style.cssText = `
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0, 0, 0, 0.95);
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        z-index: 1001;
-        padding: 20px;
-        box-sizing: border-box;
-    `;
-
-    // Construct the full URL to the photo
-    const photoUrl = `/uploads/${photoPath}`;
+    // <Jun Kai start> the photo in a kit window: the picture, who opened it, and Download beside Close
+    const photoUrl = '/uploads/' + String(photoPath).split('/').map(encodeURIComponent).join('/');
     const photoExt = (String(photoPath).match(/\.[a-z0-9]+$/i) || ['.jpg'])[0];
-    
-    // Use the SAME sizing for both raw and processed photos
-    const containerStyle = `
-        max-width: 90vw;
-        max-height: 90vh;
-        width: auto;
-        height: auto;
-        padding: 20px;
-    `;
-
-    const imageStyle = `
-        max-width: 100%;
-        max-height: 70vh;
-        width: auto;
-        height: auto;
-        object-fit: contain;
-    `;
-
-    photoPopup.innerHTML = `
-        <div class="photo-container" style="
-            background: white;
-            border-radius: 12px;
-            text-align: center;
-            position: relative;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            display: flex;
-            flex-direction: column;
-            ${containerStyle}
-        ">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-shrink: 0;">
-                <h3 style="margin: 0; color: #1e293b; font-size: 16px;">${photoType} Photo - ID: ${feedbackId}</h3>
-                <button onclick="closePhotoPopup()" style="
-                    background: none;
-                    border: none;
-                    font-size: 20px;
-                    cursor: pointer;
-                    color: #64748b;
-                    padding: 2px 8px;
-                ">×</button>
-            </div>
-            
-            <div style="
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                margin-bottom: 15px;
-                flex: 1;
-                overflow: hidden;
-            ">
-                <img src="${photoUrl}" 
-                     alt="${photoType.toLowerCase()} photo for feedback ${feedbackId}" 
-                     style="
-                        ${imageStyle}
-                        border-radius: 6px;
-                        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-                     "
-                     onerror="handlePhotoError(this, ${feedbackId}, '${photoType.toLowerCase()}')">
-            </div>
-            
-            <div style="font-size: 11px; color: #64748b; margin-bottom: 10px; flex-shrink: 0;">
-                ${photoType} photo • Accessed by ${sessionStorage.getItem('loggedUser')} at ${new Date().toLocaleTimeString()}
-            </div>
-            
-            <div style="flex-shrink: 0;">
-                <button onclick="downloadPhoto('${photoUrl}', 'feedback_${feedbackId}_${photoType.toLowerCase()}_photo${photoExt}')" 
-                        class="modal-btn-primary font-size-11 p-6-12">
-                    ⬇️ Download ${photoType}
-                </button>
-            </div>
-        </div>
-    `;
-
-    document.body.appendChild(photoPopup);
+    const kind = photoType.toLowerCase();
+    const { body, foot, status } = openKitViewer({ className: 'photo-popup', title: `${photoType} photo`, sub: `Feedback ${feedbackId}` });
+    const figure = document.createElement('figure');
+    figure.className = 'kit-photo';
+    const img = document.createElement('img');
+    img.alt = `${kind} photo for feedback ${feedbackId}`;
+    img.addEventListener('error', () => handlePhotoError(img, feedbackId, kind), { once: true });
+    img.src = photoUrl;
+    figure.appendChild(img);
+    const meta = document.createElement('p');
+    meta.className = 'kit-viewer-meta';
+    meta.textContent = `${photoType} photo, opened by ${sessionStorage.getItem('loggedUser') || 'you'} at ${new Date().toLocaleTimeString()}`;
+    body.append(figure, meta);
+    const download = document.createElement('button');
+    download.type = 'button';
+    download.className = 'ui-btn ui-btn-primary';
+    download.innerHTML = `${uiIcon('download', 16)}<span></span>`;
+    download.querySelector('span').textContent = `Download ${kind} photo`;
+    download.addEventListener('click', () => downloadPhoto(photoUrl, `feedback_${feedbackId}_${kind}_photo${photoExt}`, download, status));
+    foot.appendChild(download);
+    // <Jun Kai end>
 }
 
 // Handle photo loading errors
 function handlePhotoError(imgElement, feedbackId, photoType = 'raw') {
     console.error(`Failed to load ${photoType} photo for feedback ID:`, feedbackId);
-    
-    // Create a fallback display
-    const container = imgElement.parentElement;
-    container.innerHTML = `
-        <div style="
-            width: 400px;
-            height: 400px;
-            background: #f8fafc;
-            border: 2px dashed #e2e8f0;
-            border-radius: 8px;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            color: #64748b;
-        ">
-            <div style="font-size: 64px; margin-bottom: 16px;">📷</div>
-            <div style="font-size: 14px; text-align: center;">
-                <div>${photoType.charAt(0).toUpperCase() + photoType.slice(1)} photo not found or failed to load</div>
-                <div style="font-size: 12px; margin-top: 8px;">Feedback ID: ${feedbackId}</div>
-                <div style="font-size: 11px; margin-top: 4px; color: #94a3b8;">
-                    The ${photoType} photo file may have been deleted or moved
-                </div>
-            </div>
-        </div>
-    `;
+    // <Jun Kai start> a plain message where the picture would be
+    const box = document.createElement('div');
+    box.className = 'kit-photo-missing';
+    const title = document.createElement('strong');
+    title.textContent = `The ${photoType} photo could not be loaded`;
+    const note = document.createElement('span');
+    note.textContent = `Feedback ${feedbackId}. The file may have been deleted or moved.`;
+    box.append(title, note);
+    imgElement.replaceWith(box);
+    // <Jun Kai end>
 }
 
 // Download photo function
-function downloadPhoto(photoUrl, filename) {
+// <Jun Kai start> button and status are given by the photo window: the button is off while the file comes, so a second
+// click cannot start a second download, and a failure shows on the window's status line (a notification would sit
+// under the window). The side panel calls it with the address and the file name only.
+function downloadPhoto(photoUrl, filename, button = null, status = null) {
+    if (button && button.disabled) return;
+    if (button) button.disabled = true;
+    if (status) { status.textContent = ''; status.classList.remove('is-error'); }
     fetch(photoUrl)
         .then(response => {
             if (!response.ok) {
-                throw new Error('Photo not found');
+                throw new Error('the photo was not found');
             }
             return response.blob();
         })
@@ -226,18 +115,20 @@ function downloadPhoto(photoUrl, filename) {
             a.click();
             window.URL.revokeObjectURL(url);
             document.body.removeChild(a);
+            if (status) status.textContent = 'Downloaded';
         })
         .catch(error => {
             console.error('Download error:', error);
-            alert('Error downloading photo: ' + error.message);
-        });
+            const message = `Could not download the photo: ${error.message}`;
+            if (status && status.isConnected) { status.textContent = message; status.classList.add('is-error'); }
+            else showNotification(message, 'error');
+        })
+        .finally(() => { if (button) button.disabled = false; });
 }
+// <Jun Kai end>
 
 // Close photo popup
 function closePhotoPopup() {
-    const popup = document.querySelector('.photo-popup');
-    if (popup) {
-        popup.remove();
-    }
+    closeKitViewer(document.querySelector('dialog.photo-popup')); // <Jun Kai/>
 }
 

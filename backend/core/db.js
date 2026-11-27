@@ -29,8 +29,11 @@ const mysql = require('mysql2');
 const path = require('path');
 
 // Create MySQL connection pool with default credentials
-const pool = mysql.createPool({
+// <Jun Kai start>
+const POOL_OPTIONS = {
+// <Jun Kai end>
     host: process.env.DB_HOST || 'localhost',
+    port: Number(process.env.DB_PORT) || 3306, // <Jun Kai/> the kiosk's own MySQL (install.cmd) runs on another port
     user: process.env.DB_USER || 'kiosk_user',
     password: process.env.DB_PASSWORD || 'kiosk123',
     database: process.env.DB_NAME || 'dp_kiosk_db',
@@ -41,7 +44,10 @@ const pool = mysql.createPool({
     keepAliveInitialDelay: 0,
     connectTimeout: 30000, // a cold start takes longer than the 10 s default
     timezone: 'Z' // matches the UTC session below, so JS Dates round-trip as the right instant
-});
+// <Jun Kai start>
+};
+const pool = mysql.createPool(POOL_OPTIONS);
+// <Jun Kai end>
 
 // Every session runs in UTC. The queries convert with CONVERT_TZ(col, '+00:00', '+08:00'), which only
 // gives Singapore time when the session is UTC; on the wall PC (SGT) the unpinned session was 8 h off.
@@ -49,8 +55,31 @@ pool.on('connection', (connection) => {
     connection.query("SET time_zone = '+00:00'");
 });
 
+// <Jun Kai start>
+// A small pool of its own (same settings, UTC session) for short bookkeeping that must never queue behind the main
+// pool: the kiosk save gate is asked while a delete transaction holds row locks that main-pool queries may wait on
+const sidePools = new Map();
+function sidePool(name, connectionLimit = 2) {
+    if (!sidePools.has(name)) {
+        const side = mysql.createPool({ ...POOL_OPTIONS, connectionLimit });
+        side.on('connection', (connection) => connection.query("SET time_zone = '+00:00'"));
+        sidePools.set(name, side);
+    }
+    return sidePools.get(name);
+}
+// <Jun Kai end>
+
 // =================== 2. DATABASE CONNECTION TEST =================== 
 // Test connection on startup; retry a few times before giving up (MySQL may still be waking up)
+// <Jun Kai start>
+// A server that gives up here ends, startAll.js then stops the other server too, and nothing starts them again. After
+// a power cut Windows can sign in while MySQL is still starting, so a MySQL that does not answer yet is waited for 5
+// minutes instead of 30 seconds. A MySQL that answers with an error (wrong password, no such database) will not get
+// better by waiting: that still ends after 6 tries.
+const NOT_ANSWERING = ['ECONNREFUSED', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH', 'ENOTFOUND', 'EAI_AGAIN', 'ECONNRESET', 'PROTOCOL_CONNECTION_LOST'];
+const WAIT_FOR_MYSQL_MS = 5 * 60 * 1000;
+const firstTryAt = Date.now();
+// <Jun Kai end>
 function testConnection(attempt = 1) {
     pool.getConnection((err, connection) => {
         if (!err) {
@@ -58,8 +87,15 @@ function testConnection(attempt = 1) {
             connection.release();
             return;
         }
-        console.error(`❌ Error connecting to MySQL database (attempt ${attempt}/6):`, err.message);
-        if (attempt < 6) return setTimeout(() => testConnection(attempt + 1), 5000);
+        // <Jun Kai start>
+        const starting = NOT_ANSWERING.includes(err.code);
+        const again = starting ? Date.now() - firstTryAt < WAIT_FOR_MYSQL_MS : attempt < 6;
+        // every try at first, then one line a minute while MySQL is waited for
+        if (attempt <= 6 || attempt % 12 === 0 || !again) {
+            console.error(`❌ Error connecting to MySQL database (attempt ${attempt}${starting ? ', MySQL is not answering yet: trying for 5 minutes' : '/6'}):`, err.message);
+        }
+        if (again) return setTimeout(() => testConnection(attempt + 1), 5000);
+        // <Jun Kai end>
         console.error('   Please check:');
         console.error('   1. MySQL Server is running');
         console.error('   2. Database "dp_kiosk_db" exists');
@@ -143,7 +179,13 @@ function withTransaction(work, done) {
         const finish = (err, result) => {
             if (finished) return;
             finished = true;
-            if (err) return connection.rollback(() => { connection.release(); done(err); });
+            // <Jun Kai start>
+            // returns nothing: a mysql2 query object handed back into a promise chain throws and stops the server
+            if (err) {
+                connection.rollback(() => { connection.release(); done(err); });
+                return;
+            }
+            // <Jun Kai end>
             connection.commit((commitErr) => {
                 if (commitErr) return connection.rollback(() => { connection.release(); done(commitErr); });
                 connection.release();
@@ -173,6 +215,9 @@ module.exports = {
     all,            // SQLite-compatible all()
     run,            // SQLite-compatible run()
     query: (sql, params, callback) => pool.query(sql, params, callback),
-    
-    withTransaction
+
+    withTransaction,
+    // <Jun Kai start>
+    sidePool
+    // <Jun Kai end>
 };

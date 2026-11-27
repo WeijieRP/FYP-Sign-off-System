@@ -44,7 +44,7 @@
 //    router.post('/submit-feedback'   - Submit complete feedback with retention and email (DONE BY PRETI)
 //    router.post('/send-email'        - Send email endpoint (manual) (DONE BY PRETI)
 //    router.post('/feedback/:id/retry-email' - Retry sending email for feedback entry (DONE BY PRETI)
-//    router.get('/test-email'         - Test email endpoint (DONE BY PRETI)
+//    router.post('/test-email'        - Test email endpoint (DONE BY PRETI)
 //    router.get('/email-status'       - Check email service status (DONE BY PRETI)
 //
 // 6. DATABASE OPERATIONS
@@ -73,10 +73,18 @@ const fs = require('fs');
 const db = require('../../core/db'); // Import database connection
 const emailService = require('../email/service');
 const auth = require('../../core/auth');
+const { forLog, emailForLog } = require('../../core/log'); // <Jun Kai/> no line breaks from requests, emails masked
+const requestLimit = require('../../core/requestLimit'); // <Jun Kai/> request limits per address
+const { plainName } = require('../../core/photoFiles'); // <Jun Kai/> photo names from the kiosk are plain file names only
 const parametersConfigStore = require('../parameters/store');
 const { validateFeedbackSubmission } = require('./validationRules');
 const { analyzePledgeSentiment } = require('./pledgeSentiment');
 const lostFoundStore = require('../lostFound/store'); // changes made by nick
+// <Jun Kai start>
+const saveGate = require('../archive/saveGate');
+const deletedCounts = require('../archive/deletedCounts');
+const uploadsGate = require('../../core/uploadsGate'); // /uploads asks for a sign-in; a browser may still open the photos it just made
+// <Jun Kai end>
 
 function normalizeRetentionSelection(retention) {
     const normalized = String(retention || '').toLowerCase();
@@ -301,6 +309,7 @@ function parsePhotoDataUrl(photo, fallbackMime = 'image/png') { // changes made 
 
 function sanitizeLostFoundPhotoName(name) { // Lost & Found photo filename cleanup (DONE BY NICK)
     return String(name || 'item-photo')
+        .slice(0, 200) // <Jun Kai/> the patterns below get slow on a very long name; only 48 characters are kept anyway
         .replace(/\.[^.]+$/, '')
         .replace(/[^a-z0-9_-]+/gi, '_')
         .replace(/^_+|_+$/g, '')
@@ -445,7 +454,7 @@ router.get('/questions', (req, res) => {
 
 // ==================== 3. PHOTO UPLOAD ROUTES ====================
 // Upload and save raw photo
-router.post('/save-photo', (req, res) => {
+router.post('/save-photo', requestLimit.kioskForms, (req, res) => {
     try {
         const { photo, userName, device } = req.body;
         // Enforce capture feature flags and photo size validation before saving raw photos (DONE BY CAEDEN)
@@ -473,13 +482,17 @@ router.post('/save-photo', (req, res) => {
         // Generate filename with user name, device, and timestamp
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
         const safeUserName = userName ? userName.replace(/[^a-zA-Z0-9]/g, '_') : 'anonymous';
-        const filename = `${safeUserName}_${device}_${timestamp}.${parsedPhoto.extension}`;
+        // <Jun Kai start> only letters, digits, - and _ from the request reach the file name, so it cannot leave the folder
+        const safeDevice = String(device || 'device').replace(/[^a-zA-Z0-9_-]/g, '_');
+        const filename = `${safeUserName}_${safeDevice}_${timestamp}.${parsedPhoto.extension}`;
+        // <Jun Kai end>
         const filepath = path.join(uploadsDir, filename);
 
         // Save the file
         fs.writeFileSync(filepath, buffer);
 
-        console.log(`Photo saved to: ${filepath}`);
+        console.log(`Photo saved to: ${forLog(filepath)}`); // <Jun Kai/>
+        uploadsGate.remember(req, `photos/${filename}`); // <Jun Kai/> for the photo download on the thank-you page
         
         res.json({ 
             success: true, 
@@ -496,7 +509,7 @@ router.post('/save-photo', (req, res) => {
 });
 
 // Save processed photo with overlay
-router.post('/save-processed-photo', async (req, res) => {
+router.post('/save-processed-photo', requestLimit.kioskForms, async (req, res) => {
     try {
         const { photo, boomerangFrames, boomerangFrameDelayMs, userName, device, theme, captureMode, expectedFormat } = req.body;
         // Enforce capture feature flags and photo size validation before saving processed photos (DONE BY CAEDEN)
@@ -555,13 +568,18 @@ router.post('/save-processed-photo', async (req, res) => {
         // Generate filename for processed photo
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
         const safeUserName = userName ? userName.replace(/[^a-zA-Z0-9]/g, '_') : 'anonymous';
-        const filename = `${safeUserName}_${device}_${theme}_processed_${timestamp}.${extension}`;
+        // <Jun Kai start> only letters, digits, - and _ from the request reach the file name, so it cannot leave the folder
+        const safeDevice = String(device || 'device').replace(/[^a-zA-Z0-9_-]/g, '_');
+        const safeTheme = String(theme || 'theme').replace(/[^a-zA-Z0-9_-]/g, '_');
+        const filename = `${safeUserName}_${safeDevice}_${safeTheme}_processed_${timestamp}.${extension}`;
+        // <Jun Kai end>
         const filepath = path.join(processedDir, filename);
 
         // Save the processed file
         fs.writeFileSync(filepath, buffer);
 
-        console.log(`Processed photo saved to: ${filepath}`);
+        console.log(`Processed photo saved to: ${forLog(filepath)}`); // <Jun Kai/>
+        uploadsGate.remember(req, `processed/${filename}`); // <Jun Kai/>
         
         res.json({ 
             success: true, 
@@ -580,7 +598,7 @@ router.post('/save-processed-photo', async (req, res) => {
 
 // ==================== 4. FEEDBACK SUBMISSION ROUTES ====================
 // Save a Lost & Found report without interrupting feedback progress - changes made by nick
-router.post('/lost-found', async (req, res) => {
+router.post('/lost-found', requestLimit.kioskForms, async (req, res) => {
     const body = req.body || {};
     const report = body.report || body;
 
@@ -627,10 +645,16 @@ router.post('/lost-found', async (req, res) => {
 });
 
 // Submit complete feedback with retention and email
-router.post('/submit-feedback', async (req, res) => {
+router.post('/submit-feedback', requestLimit.kioskForms, async (req, res) => {
     const startTime = Date.now();
     const requestBody = req.body || {};
     const userData = requestBody.userData || {};
+    // <Jun Kai start> an email longer than any real one (254 characters) is refused before a pattern looks at it: a very
+    // long made-up address makes the email pattern slow enough to hold up the whole server
+    if (typeof userData.email === 'string' && userData.email.length > 254) {
+        return res.status(400).json({ success: false, message: 'Feedback validation failed', errors: [{ field: 'email', message: 'Email format is invalid.' }] });
+    }
+    // <Jun Kai end>
     const device = requestBody.device || 'unknown';
     const theme = requestBody.theme || 'unknown';
     requestBody.retention = 'longterm';
@@ -725,9 +749,16 @@ router.post('/submit-feedback', async (req, res) => {
         setTimeout(async () => {
             console.log('🔄 Background processing started...');
             const bgStartTime = Date.now();
-            
+            // <Jun Kai start>
+            // an archive deleting old visitors backs off until this save is done, so a returning visitor is never lost mid-save
+            const saveDone = await saveGate.enterSave();
+            // <Jun Kai end>
+
             try {
                 saveFeedbackToDatabase(userData, device, theme, normalizedRetention, async (error, result) => {
+                    // <Jun Kai start>
+                    saveDone();
+                    // <Jun Kai end>
                     if (error) {
                         console.error('❌ Error saving to database:', error);
                         return;
@@ -739,9 +770,9 @@ router.post('/submit-feedback', async (req, res) => {
                     
                     // Send combined visitor email AFTER database is committed.
                     if (shouldQueueEmail && result && result.feedbackId) {
-                        const photoToSend = userData.processedPhotoId || userData.photoId || null;
+                        const photoToSend = plainName(userData.processedPhotoId) || plainName(userData.photoId) || null; // <Jun Kai/> never a path out of the uploads folder
                         
-                        console.log(`📧 Starting thank-you email for ${userData.email}...`);
+                        console.log(`📧 Starting thank-you email for ${emailForLog(userData.email)}...`); // <Jun Kai/>
                         
                         setImmediate(async () => {
                             try {
@@ -762,12 +793,12 @@ router.post('/submit-feedback', async (req, res) => {
                                         badgeColor: badgeSummary.badgeColor,
                                         badgeKeys: badgeSummaries.map(badge => badge.badgeKey),
                                         badges: badgeSummaries,
-                                        treeLeafMessage: 'Your virtual leaf has been added to the RP ESG digital tree.'
+                                        treeLeafMessage: 'Your virtual leaf has been added to the RP Xperience Centre digital tree.'
                                     }
                                 );
                                 
                                 if (emailResult.success) {
-                                    console.log(`✅ Thank-you email sent to ${userData.email}`);
+                                    console.log(`✅ Thank-you email sent to ${emailForLog(userData.email)}`); // <Jun Kai/>
                                     
                                     // Update email flag (separate query, non-blocking)
                                     db.run(
@@ -791,6 +822,9 @@ router.post('/submit-feedback', async (req, res) => {
                     }
                 });
             } catch (err) {
+                // <Jun Kai start>
+                saveDone();
+                // <Jun Kai end>
                 console.error('❌ Background error:', err);
             }
         }, 0);
@@ -811,7 +845,7 @@ router.post('/submit-feedback', async (req, res) => {
 });
 
 // Send email endpoint (manual)
-router.post('/send-email', async (req, res) => {
+router.post('/send-email', auth.requireAuth, async (req, res) => { // <Jun Kai/> signed-in admins only: it sends mail to any address
     try {
         const { name, email, photoFilename, pledgeText } = req.body;
         
@@ -822,7 +856,7 @@ router.post('/send-email', async (req, res) => {
             });
         }
         
-        console.log(`📧 Manual email request for ${email} with photo ${photoFilename}`);
+        console.log(`📧 Manual email request for ${emailForLog(email)} with photo ${forLog(photoFilename)}`); // <Jun Kai/>
 
         const result = await emailService.sendEmailAndUpdateFlag(
         db,
@@ -857,7 +891,7 @@ router.post('/send-email', async (req, res) => {
 });
 
 // Retry sending email for feedback entry
-router.post('/feedback/:id/retry-email', async (req, res) => {
+router.post('/feedback/:id/retry-email', auth.requireAuth, async (req, res) => { // <Jun Kai/> signed-in admins only
     const { id } = req.params;
     
     const query = `
@@ -930,7 +964,7 @@ router.post('/feedback/:id/retry-email', async (req, res) => {
                     badgeColor: retryBadgeSummary.badgeColor,
                     badgeKeys: retryBadges.map(badge => badge.badgeKey),
                     badges: retryBadges,
-                    treeLeafMessage: 'Your virtual leaf has been added to the RP ESG digital tree.'
+                    treeLeafMessage: 'Your virtual leaf has been added to the RP Xperience Centre digital tree.'
                 }
             );
             
@@ -962,9 +996,11 @@ router.post('/feedback/:id/retry-email', async (req, res) => {
 });
 
 // Test email endpoint
-router.get('/test-email', async (req, res) => {
+// <Jun Kai start> signed-in admins only, and a POST: a GET could be started from a link on another site
+router.post('/test-email', auth.requireAuth, async (req, res) => {
     try {
-        const testEmail = req.query.email || 'test@example.com';
+        const testEmail = (req.body && req.body.email) || 'test@example.com';
+// <Jun Kai end>
         
         console.log('🧪 Testing email service...');
         
@@ -1006,7 +1042,7 @@ router.get('/email-status', async (req, res) => {
 });
 
 // Visitor-facing passport mapped by submitted email address.
-router.post('/visitor-passport', (req, res) => {
+router.post('/visitor-passport', requestLimit.visitorLookup, (req, res) => {
     const email = String(req.body?.email || '').trim().toLowerCase();
 
     if (!isValidEmail(email)) {
@@ -1090,6 +1126,7 @@ router.post('/visitor-passport', (req, res) => {
 // Validate email format
 function isValidEmail(email) {
     if (!email || typeof email !== 'string') return false;
+    if (email.length > 254) return false; // <Jun Kai/> no real email is longer, and a very long one makes the pattern slow
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return emailRegex.test(email);
 }
@@ -1097,6 +1134,14 @@ function isValidEmail(email) {
 // Count active feedback rows to estimate the current visitor number - changes made by nick
 function getActiveFeedbackCountForVisitorNumber() {
     return new Promise((resolve) => {
+        // <Jun Kai start>
+        // live feedback plus the feedback that archives and deletes removed, read in one statement (deletedCounts.js), so a
+        // visitor number is never handed out twice; without the deleted_record_counts table it falls back to the count below
+        db.get(deletedCounts.VISITOR_NUMBER_SQL, [], (totalErr, totalRow) => {
+            const total = Number(totalRow?.count);
+            if (!totalErr && Number.isFinite(total)) return resolve(total + 1);
+            if (totalErr && !['ER_NO_SUCH_TABLE', 'ER_BAD_FIELD_ERROR'].includes(totalErr.code)) return resolve(null);
+        // <Jun Kai end>
         db.get('SELECT COUNT(*) AS count FROM feedback WHERE is_active = 1', [], (err, row) => {
             if (err) {
                 db.get('SELECT COUNT(*) AS count FROM feedback', [], (fallbackErr, fallbackRow) => {
@@ -1115,6 +1160,9 @@ function getActiveFeedbackCountForVisitorNumber() {
             const count = Number(row?.count);
             resolve(Number.isFinite(count) ? count + 1 : null);
         });
+        // <Jun Kai start>
+        });
+        // <Jun Kai end>
     });
 }
 
@@ -1221,7 +1269,12 @@ function saveFeedbackToDatabase(userData, device, theme, retention, callback) {
             return callback(err);
         }
         
-        // Try to find matching user by decrypting emails
+        // Try to find matching user by decrypting emails. A returning visitor is the same email AND the same
+        // name: a different name typed with an email already used (a family or class sharing one email, or a
+        // test) is its own visitor, so its leaf on the 2D and 3D trees, the pledge board and the admin lists
+        // show the name typed on that form, not the first one. The passport and the daily limit still gather
+        // every visitor with that email (findUsersByEmail). (Wei Jie)
+        const sameName = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
         let user = null;
         if (userData.email) {
             for (const u of allUsers) {
@@ -1230,7 +1283,8 @@ function saveFeedbackToDatabase(userData, device, theme, retention, callback) {
                     const decryptedEmail = auth.tryDecryptEmail
                         ? auth.tryDecryptEmail(u.email_encrypted)
                         : auth.decryptEmail(u.email_encrypted);
-                    if (decryptedEmail && decryptedEmail.toLowerCase() === userData.email.toLowerCase()) {
+                    if (decryptedEmail && decryptedEmail.toLowerCase() === userData.email.toLowerCase()
+                        && sameName(u.name, userData.name)) {
                         user = u;
                         break;
                     }
@@ -1338,8 +1392,10 @@ function saveFeedbackToDatabase(userData, device, theme, retention, callback) {
             pledgeStatus: pledgeAnalysis.moderationStatus
         });
         
-        let photoPath = userData.photoId ? `photos/${userData.photoId}` : null;
-        let processedPhotoPath = userData.processedPhotoId ? `processed/${userData.processedPhotoId}` : null;
+        // <Jun Kai start> a name with a folder part or ".." is not saved, so no later delete or download can leave the uploads folder
+        let photoPath = plainName(userData.photoId) ? `photos/${plainName(userData.photoId)}` : null;
+        let processedPhotoPath = plainName(userData.processedPhotoId) ? `processed/${plainName(userData.processedPhotoId)}` : null;
+        // <Jun Kai end>
         
         db.run(
             `INSERT INTO feedback (user_id, comment, metadata, photo_path, processed_photo_path, data_retention, created_at) 
@@ -1352,17 +1408,19 @@ function saveFeedbackToDatabase(userData, device, theme, retention, callback) {
                 }
                 
                 const feedbackId = this.lastID;
-                console.log(`✅ Saved feedback with ID: ${feedbackId}, Retention: ${retention}, Pledge: ${userData.pledge ? 'Yes (' + userData.pledge.length + ' chars)' : 'No'}`);
-                console.log(`Raw Photo Path: ${photoPath}`);
-                console.log(`Processed Photo Path: ${processedPhotoPath}`);
+                console.log(`✅ Saved feedback with ID: ${forLog(feedbackId)}, Retention: ${forLog(retention)}, Pledge: ${userData.pledge ? 'Yes (' + forLog(userData.pledge.length) + ' chars)' : 'No'}`); // <Jun Kai/>
+                console.log(`Raw Photo Path: ${forLog(photoPath)}`); // <Jun Kai/>
+                console.log(`Processed Photo Path: ${forLog(processedPhotoPath)}`); // <Jun Kai/>
                 
                 saveQuestionAnswers(userId, feedbackId, userData, (error) => {
                     if (error) {
                         console.log('⚠️ Some answers could not be saved');
                     }
                     console.log(`📊 Feedback saved successfully - User: ${userId}, Feedback: ${feedbackId}`);
-                    console.log(`📝 Pledge: ${userData.pledge ? userData.pledge.substring(0, 50) + '...' : 'None'}`);
+                    console.log(`📝 Pledge: ${userData.pledge ? forLog(userData.pledge.substring(0, 50)) + '...' : 'None'}`); // <Jun Kai/>
                     console.log(`📅 Retention: ${retention}`);
+                    // The tree screens show the new leaf at once (features/tree/liveEvents.js).
+                    try { require('../tree/routes').nudgeTreeScreens(); } catch (nudgeError) { console.warn('Tree screens not told of the new feedback:', nudgeError.message); }
                     callback(null, { userId, feedbackId });
                 });
             }
@@ -1529,11 +1587,18 @@ router.get('/visitor-count', async (req, res) => {
         const totalVisitors = Number.isFinite(Number(nextVisitorNumber))
             ? Math.max(0, Number(nextVisitorNumber) - 1)
             : null;
+        // <Jun Kai start>
+        // every pledge ever made, archived and deleted ones included, for the thank-you page's pledge totals
+        const totalPledges = await deletedCounts.allTimePledges();
+        // <Jun Kai end>
 
         res.json({
             success: true,
             totalVisitors,
             nextVisitorNumber,
+            // <Jun Kai start>
+            totalPledges,
+            // <Jun Kai end>
             updatedAt: new Date().toISOString()
         });
     } catch (error) {
@@ -1551,7 +1616,7 @@ router.get('/', (req, res) => {
             questions: 'GET /api/feedback/questions',
             submit: 'POST /api/feedback/submit-feedback',
             sendEmail: 'POST /api/feedback/send-email',
-            testEmail: 'GET /api/feedback/test-email',
+            testEmail: 'POST /api/feedback/test-email',
             getFeedback: 'GET /api/feedback/feedback',
             getArchive: 'GET /api/feedback/archive',
             updateArchiveStatus: 'POST /api/feedback/archive/update-status',

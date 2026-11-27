@@ -11,7 +11,11 @@ if not exist "%ROOT%logs" mkdir "%ROOT%logs"
 cd /d "%ROOT%"
 timeout /t 2 /nobreak >nul
 
-for %%P in (3000 3001 3002 3003) do (
+rem <Jun Kai start> the main server's port from backend\.env too (install.cmd -Port can move it off 3000)
+set "APP_PORT=3000"
+if exist "%ROOT%backend\.env" for /f "usebackq eol=# tokens=1,* delims==" %%A in ("%ROOT%backend\.env") do if /i "%%A"=="PORT" if not "%%B"=="" set "APP_PORT=%%B"
+rem <Jun Kai end>
+for %%P in (3000 3001 3002 3003 %APP_PORT%) do (
   for /f "tokens=5" %%A in ('netstat -ano ^| findstr /C:":%%P " ^| findstr /C:"LISTENING"') do (
     if not "%%A"=="0" (
       echo [%DATE% %TIME%] Stopping Node process %%A on port %%P >> "%LOG%"

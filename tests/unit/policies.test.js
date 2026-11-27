@@ -4,7 +4,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const policies = require('../../backend/features/serverControl/policies');
-const wakeTask = require('../../backend/features/serverControl/wakeTask');
 
 // Monday 9 Nov 2026, local time
 const at = (day, h, m = 0) => new Date(2026, 10, day, h, m);
@@ -128,17 +127,17 @@ test('with only Active policies the result is the old union of windows, in any o
     }
 });
 
-test('your example: Mon 08:00-18:00 and Mon 07:00-17:00 start at 7, ignore the 17:00 stop, hibernate at 18:00', () => {
+test('your example: Mon 08:00-18:00 and Mon 07:00-17:00 start at 7, ignore the 17:00 stop, switch off at 18:00', () => {
     const a = make({ schedule_name: 'A', schedule_type: 'weekly', days_of_week: '2', start_time: '08:00', end_time: '18:00' });
     const b = make({ schedule_name: 'B', schedule_type: 'weekly', days_of_week: '2', start_time: '07:00', end_time: '17:00' });
     const list = [a, b];
     assert.equal(policies.decide(list, at(9, 7, 1)).on, true);
-    assert.equal(policies.decide(list, at(9, 17, 0, 30)).hibernate, false);
+    assert.equal(policies.decide(list, at(9, 17, 0, 30)).switchedOff, false);
     const six = policies.decide(list, new Date(2026, 10, 9, 18, 0, 30));
-    assert.equal(six.hibernate, true);
+    assert.equal(six.switchedOff, true);
     assert.match(policies.offReason(six.due), /"A" ends/);
-    assert.equal(policies.decide(list, new Date(2026, 10, 9, 18, 0, 30), six.key).hibernate, false, 'the same stop never hibernates twice');
-    assert.equal(policies.decide(list, at(9, 23)).hibernate, false, 'off but no recent switch: a PC turned on by hand stays on');
+    assert.equal(policies.decide(list, new Date(2026, 10, 9, 18, 0, 30), six.key).switchedOff, false, 'the same stop never counts twice');
+    assert.equal(policies.decide(list, at(9, 23)).switchedOff, false, 'off but no recent switch: a PC turned on by hand stays on');
     const state = policies.status(list, at(9, 9));
     assert.equal(state.until.getHours(), 18, 'the cards show 18:00, not 17:00');
     assert.equal(state.nextStop.getHours(), 18);
@@ -150,16 +149,16 @@ test('a policy change that turns the kiosk off now is a switch-off; a very short
     const stopToday = make({ schedule_name: 'stop today', schedule_type: 'specific_date', specific_date: '2026-11-09', start_time: '09:00', end_time: '17:00', action: 'stop' });
     const tenOhOne = at(9, 10, 1);
     const edited = policies.decide([stopToday, hours], tenOhOne, null, { lastOn: true });
-    assert.equal(edited.hibernate, true);
+    assert.equal(edited.switchedOff, true);
     assert.match(edited.key, /^off\|edit\|/);
     assert.match(policies.offReason(edited.due), /policy change.*stop today/);
-    assert.equal(policies.decide([stopToday, hours], tenOhOne, null, { lastOn: false }).hibernate, false, 'already off at the last tick: leave it');
-    assert.equal(policies.decide([stopToday, hours], tenOhOne, edited.key, { lastOn: true }).hibernate, false, 'once only');
+    assert.equal(policies.decide([stopToday, hours], tenOhOne, null, { lastOn: false }).switchedOff, false, 'already off at the last tick: leave it');
+    assert.equal(policies.decide([stopToday, hours], tenOhOne, edited.key, { lastOn: true }).switchedOff, false, 'once only');
     const morning = make({ schedule_name: 'morning', start_time: '08:00', end_time: '12:00' });
     const afternoon = make({ schedule_name: 'afternoon', start_time: '12:02', end_time: '18:00' });
     const gap = policies.decide([morning, afternoon], new Date(2026, 10, 9, 12, 0, 30));
     assert.equal(gap.backSoon, true);
-    assert.equal(gap.hibernate, false, 'back on in 2 minutes: the wake timer would already be gone');
+    assert.equal(gap.switchedOff, false, 'back on in 2 minutes: not a switch-off');
 });
 
 test('overlaps tells whether two policies ever cover the same moment', () => {
@@ -188,9 +187,6 @@ test('wake times: three minutes before each switch-on, none for a stop day, capp
     const capped = policies.wakeTimes([make({})], at(9, 20), { days: 30, max: 5 });
     assert.equal(capped.times.length, 5);
     assert.ok(capped.dropped > 0);
-    const xml = wakeTask.buildTriggers([holiday, hours], at(9, 20));
-    assert.ok(xml.length >= 4);
-    assert.match(xml[0], /<TimeTrigger><StartBoundary>2026-11-10T07:57:00<\/StartBoundary>/);
 });
 
 test('a long Stop period still leaves one wake-up: the first switch-on after it', () => {
@@ -244,5 +240,17 @@ test('preview cuts each day at midnight and names the deciding policy', () => {
     assert.equal(p.nowMin, 600);
     const monday = p.days[0].segments.map((s) => [s.from, s.to, s.on, s.name]);
     assert.deepEqual(monday, [['00:00', '02:00', true, 'late'], ['12:00', '13:00', false, 'lunch'], ['22:00', '24:00', true, 'late']]);
+});
+test('a policy keeps one of the calendar colours, an edit without one keeps the saved colour, the preview carries it', () => {
+    const base = { schedule_name: 'Open house', schedule_type: 'daily', start_time: '09:00', end_time: '21:00' };
+    assert.equal(policies.normalize({ ...base, color: 'teal' }).policy.color, 'teal');
+    assert.equal(policies.normalize({ ...base, color: 'neon' }).policy.color, null);
+    assert.equal(policies.normalize({ ...base }).policy.color, null);
+    assert.equal(policies.normalize({ ...base, start_time: '10:00' }, { ...base, color: 'rose' }).policy.color, 'rose');
+    assert.equal(policies.COLORS.length, 10);
+    const open = make({ schedule_name: 'open', color: 'indigo' });
+    const plain = make({ schedule_name: 'plain', start_time: '18:00', end_time: '20:00' });
+    const day = policies.preview([open, plain], at(9, 7), 1).days[0];
+    assert.deepEqual(day.segments.map((s) => [s.name, s.color]), [['open', 'indigo'], ['plain', null]]);
 });
 // <Jun Kai end>

@@ -3,20 +3,50 @@
 // ===================== 27. FORM MANAGEMENT =====================
 // Configure feedback form UI (background, landing title, subtitle)
 
-function setFormStatus(message, type = 'info', autoHide = false) {
-  const status = document.getElementById('fm-status');
+// <Jun Kai start> a status pill under the page title; loading messages show nothing
+function setFormPill(id, message, type) {
+  const status = document.getElementById(id);
   if (!status) return;
+  if (type === 'info' || /loaded/i.test(message)) { status.innerHTML = ''; return; }
+  status.innerHTML = uiPill(type === 'success' ? 'ok' : 'down', message);
+}
 
-  status.textContent = message;
-  status.className = `fm-status fm-status--${type}`;
+function setFormStatus(message, type = 'info') {
+  setFormPill('fm-status', message, type);
+}
 
-  if (autoHide) {
-    setTimeout(() => {
-      status.className = 'fm-status fm-status--hidden';
-      status.textContent = '';
-    }, 2500);
+// the kiosk keeps its own text when the saved title or subtitle is empty (feedback.html, config.js)
+const START_SCREEN_DEFAULT_TITLE = "Let's turn your ideas into reality";
+const START_SCREEN_DEFAULT_SUBTITLE = 'Share your thoughts and help us improve our services. Your feedback matters.';
+
+function renderStartScreenPreview(prefix, title, subtitle) {
+  const heading = document.getElementById(prefix + '-preview-heading');
+  const sub = document.getElementById(prefix + '-preview-subtitle');
+  if (!heading || !sub) return;
+  heading.textContent = String(title || '').trim() || START_SCREEN_DEFAULT_TITLE;
+  sub.textContent = String(subtitle || '').trim() || START_SCREEN_DEFAULT_SUBTITLE;
+}
+
+function renderFormUiPreview() {
+  const title = document.getElementById('fm-title');
+  const subtitle = document.getElementById('fm-subtitle');
+  if (title && subtitle) renderStartScreenPreview('fm', title.value, subtitle.value);
+}
+
+// the Feedback QR Code preview follows the switch before it is saved
+function renderLandingQrPreview() {
+  const toggle = document.getElementById('qr-code-toggle');
+  const screen = document.getElementById('qr-preview');
+  const caption = document.getElementById('qr-preview-caption');
+  if (!toggle || !screen) return;
+  screen.classList.toggle('has-qr', toggle.checked);
+  if (caption) {
+    caption.textContent = toggle.checked
+      ? 'The QR code shows beside the text. A visitor scans it to fill in the form on their own phone.'
+      : 'No QR code. Visitors fill in the form on the kiosk itself.';
   }
 }
+// <Jun Kai end>
 
 async function loadFormUISettings() {
   try {
@@ -28,8 +58,9 @@ async function loadFormUISettings() {
     document.getElementById('fm-bg').value = cfg.background || '';
     document.getElementById('fm-title').value = cfg.landingTitle || '';
     document.getElementById('fm-subtitle').value = cfg.landingSubtitle || '';
+    renderFormUiPreview(); // <Jun Kai/> setting .value fires no input event
 
-    setFormStatus('Settings loaded', 'success', true);
+    setFormStatus('Settings loaded', 'success'); // <Jun Kai/> clears the pill
   } catch (err) {
     console.error(err);
     setFormStatus('Failed to load settings', 'error');
@@ -62,7 +93,7 @@ async function saveFormUISettings() {
       throw new Error(data.error || 'Save failed');
     }
 
-    setFormStatus('Changes saved successfully', 'success', true);
+    setFormStatus('Changes saved', 'success'); // <Jun Kai/>
   } catch (err) {
     console.error(err);
     setFormStatus('Failed to save changes', 'error');
@@ -78,14 +109,17 @@ async function loadLandingPageQR() {
     if (toggle) {
       toggle.checked = Boolean(cfg.showLandingPageQRCode);
     }
+    // <Jun Kai start> the preview, as setting .checked fires no change event
+    renderStartScreenPreview('qr', cfg.landingTitle, cfg.landingSubtitle);
+    renderLandingQrPreview();
+    // <Jun Kai end>
 
-    const status = document.getElementById('landing-qr-status');
-    if (status) {
-      status.textContent = 'QR setting loaded';
-      status.className = 'fm-status fm-status--success';
-    }
+    setFormPill('landing-qr-status', 'QR setting loaded', 'success'); // <Jun Kai/> clears the pill
   } catch (error) {
     console.error('Failed to load landing page QR setting:', error);
+    setFormPill('landing-qr-status', 'Failed to load the QR setting', 'error'); // <Jun Kai/>
+    renderStartScreenPreview('qr', '', ''); // <Jun Kai/>
+    renderLandingQrPreview(); // <Jun Kai/>
   }
 }
 
@@ -114,18 +148,11 @@ async function saveLandingPageQR() {
       throw new Error(data.error || 'Save failed');
     }
 
-    const status = document.getElementById('landing-qr-status');
-    if (status) {
-      status.textContent = showLandingPageQRCode ? 'Landing QR code enabled' : 'Landing QR code disabled';
-      status.className = 'fm-status fm-status--success';
-    }
+    // <Jun Kai/> pills instead of the old status line
+    setFormPill('landing-qr-status', showLandingPageQRCode ? 'Saved: the QR code shows on the start screen' : 'Saved: the QR code is hidden', 'success');
   } catch (error) {
     console.error('Failed to save landing page QR setting:', error);
-    const status = document.getElementById('landing-qr-status');
-    if (status) {
-      status.textContent = 'Failed to save QR setting';
-      status.className = 'fm-status fm-status--error';
-    }
+    setFormPill('landing-qr-status', 'Failed to save the QR setting', 'error'); // <Jun Kai/>
   }
 }
 

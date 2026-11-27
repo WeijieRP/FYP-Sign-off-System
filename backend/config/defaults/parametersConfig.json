@@ -19,7 +19,7 @@
   },
   "campaignSettings": {
     "enabled": false,
-    "title": "ESG Campaign",
+    "title": "RP Xperience Centre Campaign",
     "cadence": "weekly",
     "treeSubtitle": "This week's focus: reduce food waste through mindful choices.",
     "pulseGoal": 100,
@@ -37,18 +37,18 @@
     ]
   },
   "emailContent": {
-    "thankYouSubject": "Thank you for visiting RP ESG Centre, {name}!",
-    "thankYouIntro": "Thank you for taking the time to visit our ESG Experience Centre and sharing your feedback. Attached below is your commemorative photo from your visit.",
+    "thankYouSubject": "Thank you for visiting RP Xperience Centre, {name}!",
+    "thankYouIntro": "Thank you for taking the time to visit our RP Xperience Centre and sharing your feedback. Attached below is your commemorative photo from your visit.",
     "thankYouClosing": "We hope your experience has inspired you to take meaningful steps towards sustainability. Your feedback helps us improve and create better experiences for future visitors.",
-    "senderName": "ESG Centre Team",
-    "footerNote": "This is an automated email sent from the RP ESG kiosk system. Please do not reply to this message.",
+    "senderName": "RP Xperience Centre Team",
+    "footerNote": "This is an automated email sent from the RP Xperience Centre kiosk system. Please do not reply to this message.",
     "visitSummaryTitle": "Your Visit Summary",
     "visitSummaryDateLabel": "Visit date",
     "visitSummaryTopicLabel": "Pledge topic",
     "visitSummaryBadgeLabel": "Badge earned",
     "visitSummaryRetentionLabel": "Data retention",
     "visitSummaryTreeLabel": "Digital tree",
-    "visitSummaryTreeMessage": "Your virtual leaf has been added to the RP ESG digital tree."
+    "visitSummaryTreeMessage": "Your virtual leaf has been added to the RP Xperience Centre digital tree."
   },
   "featureFlags": {
     "cameraCaptureEnabled": true,
@@ -110,7 +110,7 @@
       "paddingX": 30,
       "paddingY": 15,
       "position": "top-center",
-      "titleText": "🌳 ESG Digital Tree",
+      "titleText": "🌳 RP Xperience Centre Digital Tree",
       "subtitleText": "Growing with every visitor's contribution this year"
     }
   },
@@ -154,7 +154,7 @@
     ]
   },
   "archiveSettings": {
-    "autoArchiveEnabled": true,
+    "autoArchiveEnabled": false,
     "archiveAfterDays": 90,
     "keepRecentFeedbackCount": 0
   },

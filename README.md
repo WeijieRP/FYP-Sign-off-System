@@ -1,6 +1,6 @@
-# ESG Centre Sign-Off System (DP Kiosk)
+# RP Xperience Centre Sign-Off System (DP Kiosk)
 
-Visitor engagement kiosk for Republic Polytechnic's ESG Centre: visitors give feedback and a pledge on a tablet,
+Visitor engagement kiosk for the RP Xperience Centre at Republic Polytechnic: visitors give feedback and a pledge on a tablet,
 take a photo, and appear as a leaf on the digital tree shown on the centre's 7 m by 2 m wall. Admins manage
 everything from a web page. Built by the AY2025/26 FYP team; enhanced by the current team (see Team below).
 
@@ -10,11 +10,22 @@ everything from a web page. Built by the AY2025/26 FYP team; enhanced by the cur
 |---|---|---|
 | Windows PC behind the wall | `node startAll.js`: the HTTPS server (:3000) and the local kiosk server (:3003) | wall pages at `http://localhost:3003/tree`, `/pulse` |
 | Android tablets on the same Wi-Fi | Chrome | `https://<pc-ip>:3000/feedback` (the QR on the landing page carries this) |
-| Admin | any browser | `https://<pc-ip>:3000/admin` (seeded login: `systemadmin`, change it) |
+| Admin | any browser | `https://<pc-ip>:3000/admin` (seeded login: `systemadmin`, change it and add its email on Users, so "Forgot password?" can reset it) |
 
 MySQL 8.4 runs on the PC. Ollama is optional and only used by the admin feedback analysis.
 
-## Install (any computer)
+## Install the kiosk (offline package)
+
+The kiosk PC installs from the offline package on the GitHub Release: unzip `rp-xperience-kiosk-windows-x64.zip` and
+run `install.cmd`, or paste one line into PowerShell. Node.js and MySQL are inside the package, so the PC needs
+nothing else. See [docs/features/command-line-install.md](docs/features/command-line-install.md).
+
+## Install for development (any computer)
+
+On Windows, run `install.cmd` in the project folder (or double-click it) once Node.js 22 and MySQL 8.4 are installed:
+it installs the packages, fills `backend/.env`, creates the database if it is missing and applies the migrations.
+`install.cmd -Role WallPC` also sets up the kiosk PC; `uninstall.cmd` removes it again. See
+[docs/features/install.md](docs/features/install.md). The manual steps:
 
 1. Node.js 22 (`.nvmrc`), MySQL Server 8.4, Git. Optional: Ollama with `ollama pull phi3`, `gemma2:2b`, `qwen2.5:3b`.
 2. Clone into a normal folder (not one whose name starts with a dot, Express cannot serve from those):

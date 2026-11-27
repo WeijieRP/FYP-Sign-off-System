@@ -187,23 +187,25 @@ const themeConfig = {
         { id: 'global', name: 'Admin Overall Theme', icon: '🌐', isGlobal: true },
         { id: 'admin-dashboard', name: 'Admin Panel (Header + Sidebar)', icon: '⚙️' },
         { id: 'dashboard-page', name: 'Dashboard', icon: '📊' },
-        { id: 'feedback-data-page', name: 'Feedback Data', icon: '💬' },
-        { id: 'digital-tree-page', name: 'Digital Tree', icon: '🌳' },
+        { id: 'feedback-data-page', name: 'Feedback', icon: '💬' },
+        { id: 'digital-tree-page', name: 'Tree Leaves', icon: '🌳' },
         { id: 'pledgeboard-page', name: 'Pledgeboard', icon: '🏆' },
         { id: 'pulse-page', name: 'Live Pulse', icon: 'LIVE' },
-        { id: 'overlay-page', name: 'Overlay Management', icon: '🎨', requiredRole: 'system_admin' },
-        { id: 'questions-page', name: 'Question Management', icon: '❓', requiredRole: 'system_admin' },
-        { id: 'users-page', name: 'User Management', icon: '👥', requiredRole: 'system_admin' },
-        { id: 'vip-page', name: 'VIP Management', icon: '👑', requiredRole: 'system_admin' },
-        { id: 'email-management-page', name: 'Email Management', icon: '📧', requiredRole: 'system_admin' },
-        { id: 'badge-email-templates-page', name: 'Badge Email Templates', icon: 'Mail', requiredRole: 'system_admin' },
-        { id: 'form-management-page', name: 'Form Management', icon: '📝', requiredRole: 'system_admin' },
-        { id: 'archive-page', name: 'Archive', icon: '📚', requiredRole: 'system_admin' },
+        { id: 'overlay-page', name: 'Photo Overlays', icon: '🎨', requiredRole: 'system_admin' },
+        { id: 'questions-page', name: 'Questions', icon: '❓', requiredRole: 'system_admin' },
+        { id: 'users-page', name: 'Users', icon: '👥', requiredRole: 'system_admin' },
+        { id: 'vip-page', name: 'VIPs', icon: '👑', requiredRole: 'system_admin' },
+        { id: 'email-management-page', name: 'Mail Account', icon: '📧', requiredRole: 'system_admin' },
+        { id: 'badge-email-templates-page', name: 'Badge Emails', icon: 'Mail', requiredRole: 'system_admin' },
+        { id: 'form-management-page', name: 'Start Screen Text', icon: '📝', requiredRole: 'system_admin' },
+        // <Jun Kai start>
+        { id: 'archive-page', name: 'Archived Feedback', icon: '📚', requiredRole: 'system_admin' },
+        // <Jun Kai end>
         { id: 'audit-page', name: 'Audit Logs', icon: '📋', requiredRole: 'system_admin' },
         { id: 'data-export-page', name: 'Data Export', icon: '📦', requiredRole: 'system_admin' },
-        { id: 'timer-countdown-page', name: 'Timer Countdown', icon: '🕔', requiredRole: 'system_admin' },
-        { id: 'server-schedule-page', name: 'Server Schedule', icon: '❗', requiredRole: 'system_admin' },
-        { id: 'theme-settings-page', name: 'Style & Theme Settings', icon: '🎨' }
+        { id: 'timer-countdown-page', name: 'Photo Timer', icon: '🕔', requiredRole: 'system_admin' },
+        { id: 'server-schedule-page', name: 'Operating Hours', icon: '❗', requiredRole: 'system_admin' },
+        { id: 'theme-settings-page', name: 'Style & Theme', icon: '🎨' }
     ],
     
     // Selector mapping grouped
@@ -214,7 +216,6 @@ const themeConfig = {
                 'page-background': {
                     auto: ['*-page'],
                     explicit: [
-                        '#theme-settings-page .theme-preview',
                         'body',
                         '.page-content'
                     ]
@@ -224,7 +225,8 @@ const themeConfig = {
                     explicit: [
                         '.section-header h3',
                         '.page-header h2',
-                        'h1', 'h2', 'h3',
+                        // <Jun Kai/> not inside the redesigned cards: they keep the kit colours until the theme maps onto them
+                        ':is(h1, h2, h3):not(.ui-card *)',
                         '#admin-dashboard .header-left h1',
                         '#admin-dashboard .username'
                     ]
@@ -233,7 +235,7 @@ const themeConfig = {
                     auto: ['*-page .page-header p'],
                     explicit: [
                         '.page-header p',
-                        'p',
+                        'p:not(.ui-card *)', // <Jun Kai/> not inside the redesigned cards (see the headings above)
                         '.description',
                         '.subtitle',
                         '#admin-dashboard .header-left p',
@@ -243,7 +245,7 @@ const themeConfig = {
             },
             header: {
                 'admin-header-bg': ['#admin-dashboard .admin-header'],
-                'primary-header-text': ['#admin-dashboard .header-left h1', '#admin-dashboard .username'],
+                'primary-header-text': ['#admin-dashboard .header-left h1', '#admin-dashboard .username', '#admin-dashboard .theme-toggle'], // <Jun Kai/> the Light / Dark button follows the header text
                 'secondary-header-text': ['#admin-dashboard .header-left p', '#admin-dashboard .user-role']
             },
             navbar: {
@@ -268,7 +270,6 @@ const themeConfig = {
                         '#data-export-page .password-panel-card',
                         '#data-export-page .export-card',
                         '#theme-settings-page .theme-section-list',
-                        '#theme-settings-page .theme-settings-form',
                         '#theme-settings-page .preview-card',
                         '.card',
                         '.stat-card',
@@ -336,16 +337,12 @@ const themeConfig = {
                     explicit: [
                         '#admin-dashboard .logout-btn',
                         '#dashboard-page .refresh-btn',
-                        '#feedback-data-page #decrypt-emails-btn',
-                        '#feedback-data-page #re-encrypt-btn',
                         '#feedback-data-page .btn-warning',
                         '#feedback-data-page .btn-view',
                         '#overlay-page .btn-view-overlay',
                         '#questions-page .btn-edit',
                         '#users-page .btn-edit',
                         '#archive-page .btn-warning',
-                        '#archive-page #decrypt-archive-emails-btn',
-                        '#archive-page #re-encrypt-archive-btn',
                         '#archive-page .btn-view',
                         '#data-export-page .export-btn',
                         '#theme-settings-page .preview-btn-primary',
@@ -368,16 +365,12 @@ const themeConfig = {
                     explicit: [
                         '#admin-dashboard .logout-btn',
                         '#dashboard-page .refresh-btn',
-                        '#feedback-data-page #decrypt-emails-btn',
-                        '#feedback-data-page #re-encrypt-btn',
                         '#feedback-data-page .btn-warning',
                         '#feedback-data-page .btn-view',
                         '#overlay-page .btn-view-overlay',
                         '#questions-page .btn-edit',
                         '#users-page .btn-edit',
                         '#archive-page .btn-warning',
-                        '#archive-page #decrypt-archive-emails-btn',
-                        '#archive-page #re-encrypt-archive-btn',
                         '#archive-page .btn-view',
                         '#data-export-page .export-btn',
                         '#theme-settings-page .preview-btn-primary',
@@ -430,7 +423,7 @@ const themeConfig = {
         'admin-dashboard': {
             header: {
                 'admin-header-bg': ['#admin-dashboard .admin-header'],
-                'primary-header-text': ['#admin-dashboard .header-left h1', '#admin-dashboard .username'],
+                'primary-header-text': ['#admin-dashboard .header-left h1', '#admin-dashboard .username', '#admin-dashboard .theme-toggle'], // <Jun Kai/> the Light / Dark button follows the header text
                 'secondary-header-text': ['#admin-dashboard .header-left p', '#admin-dashboard .user-role']
             },
             navbar: {
@@ -500,16 +493,12 @@ const themeConfig = {
                 'button-color': [
                     '#feedback-data-page .btn-primary',
                     '#feedback-data-page .btn-secondary',
-                    '#feedback-data-page #decrypt-emails-btn',
-                    '#feedback-data-page #re-encrypt-btn',
                     '#feedback-data-page .btn-warning',
                     '#feedback-data-page .btn-view'
                 ],
                 'button-text-color': [
                     '#feedback-data-page .btn-primary',
                     '#feedback-data-page .btn-secondary',
-                    '#feedback-data-page #decrypt-emails-btn',
-                    '#feedback-data-page #re-encrypt-btn',
                     '#feedback-data-page .btn-warning',
                     '#feedback-data-page .btn-view'
                 ]
@@ -605,19 +594,21 @@ const themeConfig = {
         
         // <Jun Kai start>  (the page now uses the admin UI kit classes)
         'email-management-page': {
+            // <Jun Kai/> the card keys are empty like the other rebuilt pages: the kit colours stay until the theme is mapped onto the new look
             general: {
                 'page-background': ['#email-management-page'],
                 'primary-text': ['#email-management-page .ui-page-header h2'],
                 'secondary-text': ['#email-management-page .ui-page-header p']
             },
             card: {
-                'card-background': ['#email-management-page .ui-card'],
-                'card-primary-text': ['#email-management-page .ui-card-header h3'],
-                'card-secondary-text': ['#email-management-page .ui-label']
+                'card-background': [],
+                'card-primary-text': [],
+                'card-secondary-text': []
             },
             buttons: {
-                'button-color': ['#email-management-page .ui-btn-primary', '#email-management-page .ui-btn-secondary'],
-                'button-text-color': ['#email-management-page .ui-btn-primary', '#email-management-page .ui-btn-secondary']
+                // the page's own button colour is for the outlined buttons: Save keeps the primary colour of the whole admin
+                'button-color': [],
+                'button-text-color': []
             }
         },
         // <Jun Kai end>
@@ -631,7 +622,7 @@ const themeConfig = {
             card: {
                 'card-background': ['#form-management-page .overlay-section', '#form-management-page .user-section'],
                 'card-primary-text': ['#form-management-page .section-header h3'],
-                'card-secondary-text': ['#form-management-page label']
+                'card-secondary-text': []
             },
             buttons: {
                 'button-color': ['#form-management-page .btn-primary', '#form-management-page .btn-secondary'],
@@ -654,16 +645,12 @@ const themeConfig = {
                     '#archive-page .btn-secondary',
                     '#archive-page .btn-primary',
                     '#archive-page .btn-warning',
-                    '#archive-page #decrypt-archive-emails-btn',
-                    '#archive-page #re-encrypt-archive-btn',
                     '#archive-page .btn-view'
                 ],
                 'button-text-color': [
                     '#archive-page .btn-secondary',
                     '#archive-page .btn-primary',
                     '#archive-page .btn-warning',
-                    '#archive-page #decrypt-archive-emails-btn',
-                    '#archive-page #re-encrypt-archive-btn',
                     '#archive-page .btn-view'
                 ]
             },
@@ -743,8 +730,8 @@ const themeConfig = {
                 'card-secondary-text': ['#timer-countdown-page .filter-label', '#timer-countdown-page .text-muted']
             },
             buttons: {
-                'button-color': ['#timer-countdown-page .btn-primary', '#timer-countdown-page #refresh-timer-btn', '#timer-countdown-page #save-timer-countdown-btn'],
-                'button-text-color': ['#timer-countdown-page .btn-primary', '#timer-countdown-page #refresh-timer-btn', '#timer-countdown-page #save-timer-countdown-btn']
+                'button-color': ['#timer-countdown-page .btn-primary'],
+                'button-text-color': ['#timer-countdown-page .btn-primary']
             }
         },
         
@@ -757,7 +744,7 @@ const themeConfig = {
             card: {
                 'card-background': ['#server-schedule-page .schedule-section'],
                 'card-primary-text': ['#server-schedule-page .section-header h3'],
-                'card-secondary-text': ['#server-schedule-page label']
+                'card-secondary-text': []
             },
             buttons: {
                 'button-color': ['#server-schedule-page .btn-primary', '#server-schedule-page .btn-secondary'],
@@ -765,15 +752,19 @@ const themeConfig = {
             }
         },
         
+        // <Jun Kai/> Style & Theme B: these keys still name the old classes, like the other redesigned pages, so they match
+        // nothing and the new cards keep the kit colours (and dark mode) until the theme is mapped onto the kit. The three
+        // old classes that the new page reuses (.theme-settings-form, .theme-group-title, .theme-preview) were taken out
+        // here and in the overall lists, so a dark card colour never paints the editor behind its dark text
         'theme-settings-page': {
             general: {
-                'page-background': ['#theme-settings-page', '#theme-settings-page .theme-preview'],
+                'page-background': ['#theme-settings-page'],
                 'primary-text': ['#theme-settings-page .page-header h2'],
                 'secondary-text': ['#theme-settings-page .page-header p']
             },
             card: {
                 'card-header-background': ['#theme-settings-page .theme-sidebar-header', '#theme-settings-page .theme-panel-header'],
-                'card-background': ['#theme-settings-page .theme-section-list', '#theme-settings-page .theme-settings-form', '#theme-settings-page .preview-card'],
+                'card-background': ['#theme-settings-page .theme-section-list', '#theme-settings-page .preview-card'],
                 'card-item-hover-bg': ['#theme-settings-page .theme-section-item:hover'],
                 'card-item-hover-text': ['#theme-settings-page .theme-section-item:hover'],
                 'card-item-active-bg': ['#theme-settings-page .theme-section-item.active'],
@@ -782,8 +773,7 @@ const themeConfig = {
                 'card-primary-text': ['#theme-settings-page .theme-sidebar-header h3', '#theme-settings-page .preview-card h5', '#theme-settings-page .theme-panel-header h3'],
                 'card-secondary-text': [
                     '#theme-settings-page .preview-card p',
-                    '#theme-settings-page .theme-section-item',     
-                    '#theme-settings-form .theme-group-title'        
+                    '#theme-settings-page .theme-section-item'
                 ],
             },
             buttons: {
@@ -851,7 +841,7 @@ const themeConfig = {
         badges: [
             { id: 'badge-7days-background', label: '7-Day Retention Badge BG', default: '#9E0000', description: 'Background for 7-day retention badges' },
             { id: 'badge-7days-text', label: '7-Day Retention Badge Text', default: '#ffffffff', description: 'Text color for 7-day retention badges' },
-            { id: 'badge-longterm-background', label: 'Long-Term Retention Badge BG', default: '#2EAD00', description: 'Background for long-term retention badges' },
+            { id: 'badge-longterm-background', label: 'Long-Term Retention Badge BG', default: '#15803D', /* <Jun Kai/> was #2EAD00: white text on it read only 3:1 */ description: 'Background for long-term retention badges' },
             { id: 'badge-longterm-text', label: 'Long-Term Retention Badge Text', default: '#ffffffff', description: 'Text color for long-term retention badges' }
         ],
         // slider: [
@@ -922,6 +912,9 @@ let currentSection = 'global';
 // Initialize theme settings page
 function initThemeSettings() {
     loadThemeSettings();
+    // <Jun Kai/> the stored colours are loaded again, so changes that were not saved are gone and so is their mark
+    themeMarkUnsaved(false);
+    themeSay('');
     renderSectionList();
     selectSection('global');
     applyThemeSettings();
@@ -1013,26 +1006,69 @@ function migrateOldColors() {
     }
 }
 
+// <Jun Kai start>
+// The frame of the admin page (top bar and sidebar) is frosted glass since the redesign. The frame colours of a theme
+// tint that glass: admin.css mixes the two background colours with the page behind them, and the rest are used as
+// they are. THEME_GLASS_FRAME is the default set (light glass, dark text).
+const THEME_GLASS_FRAME = {
+    'admin-header-bg': '#ffffff',
+    'primary-header-text': '#0f172a',
+    'secondary-header-text': '#64748b',
+    'navbar-background': '#ffffff',
+    'navbar-primary-text': '#64748b',
+    'navbar-secondary-text': '#334155',
+    'navbar-active-selection': '#fffffff2',
+    'navbar-hover': '#ffffff99'
+};
+// The default frame before the redesign (dark bar, dark sidebar, light text)
+const THEME_OLD_FRAME = {
+    'admin-header-bg': '#262626',
+    'primary-header-text': '#ffffff',
+    'secondary-header-text': '#b0b0b0',
+    'navbar-background': '#16181d',
+    'navbar-primary-text': '#808080',
+    'navbar-secondary-text': '#a0a0a0',
+    'navbar-active-selection': '#2a2d3a',
+    'navbar-hover': '#1f2229'
+};
+// the colour of the page under the colour wash: pale grey now, plain white before
+const THEME_GLASS_PAGE = '#f3f6fa';
+const THEME_OLD_PAGE = '#ffffff';
+// the options that only set a variable for the glass (admin.css reads them)
+const THEME_GLASS_VARIABLES = { 'admin-header-bg': '--l3-header-tint', 'navbar-background': '--l3-nav-tint' };
+
+function themeSameColor(a, b) {
+    const plain = (value) => String(value || '').trim().toLowerCase().replace(/^(#[0-9a-f]{6})ff$/, '$1');
+    return plain(a) === plain(b);
+}
+
+// A saved theme or a browser's saved settings from before the redesign still hold the old dark frame. When every one
+// of its eight frame colours is still the old default, nobody chose them, so the whole set moves to the glass
+// defaults. A frame somebody changed (even one colour) is left alone: its backgrounds and its text were picked to be
+// read together, and it then shows as tinted glass.
+function themeAdoptGlassFrame(colors) {
+    if (!colors) return;
+    const keys = Object.keys(THEME_OLD_FRAME);
+    if (!keys.every((key) => themeSameColor(colors[key], THEME_OLD_FRAME[key]))) return;
+    for (const key of keys) colors[key] = THEME_GLASS_FRAME[key];
+    // the page colour under the wash moves with it, when it is still the old white
+    if (themeSameColor(colors['page-background'], THEME_OLD_PAGE)) colors['page-background'] = THEME_GLASS_PAGE;
+}
+// <Jun Kai end>
+
 // Custom default theme - modify these colors to your preference
 function getCustomDefaultColors() {
     return {
         // ==================== GENERAL COLORS ====================
-        'page-background': '#ffffffff',            // White page background
+        'page-background': THEME_GLASS_PAGE,       // <Jun Kai/> pale grey under the colour wash (was white)
         'primary-text': '#000000ff',               // Black primary text
         'secondary-text': '#959595ff',             // Gray secondary text
         
-        // ==================== ADMIN HEADER COLORS ====================
-        'admin-header-bg': '#262626',              // Dark gray header background
-        'primary-header-text': '#ffffff',          // White primary header text
-        'secondary-header-text': '#b0b0b0',        // Light gray secondary header text
-        
-        // ==================== NAVBAR COLORS ====================
-        'navbar-background': '#16181d',            // Dark navbar background
-        'navbar-primary-text': '#808080',          // Gray navbar section headers
-        'navbar-secondary-text': '#a0a0a0',        // Light gray navbar items
-        'navbar-active-selection': '#2a2d3a',      // Dark gray active item background
-        'navbar-hover': '#1f2229',                 // Dark gray hover background
-        
+        // <Jun Kai start> the header and the sidebar are glass panels since the redesign: these colours tint the glass
+        // (THEME_GLASS_FRAME below), with dark text on it. The dark frame they replace is THEME_OLD_FRAME.
+        ...THEME_GLASS_FRAME,
+        // <Jun Kai end>
+
         // ==================== CARD COLORS ====================
         'card-background': '#f7f7f7ff',            // Light gray card background
         'card-header-background': '#ffffffff',     // White card header background
@@ -1052,7 +1088,7 @@ function getCustomDefaultColors() {
         // ==================== BADGE COLORS ====================
         'badge-7days-background': '#9E0000',       // Red badge background (7-day retention)
         'badge-7days-text': '#ffffffff',           // White badge text (7-day retention)
-        'badge-longterm-background': '#2EAD00',  // Green badge background (long-term)
+        'badge-longterm-background': '#15803D',  // Green badge background (long-term); <Jun Kai/> darker than #2EAD00 so its white text reads (5:1)
         'badge-longterm-text': '#ffffffff',      // White badge text (long-term)
         
         // ==================== LOGIN PAGE COLORS ====================
@@ -1168,7 +1204,7 @@ function saveThemeSettings() {
         
         if (!currentUserId) {
             console.error('Cannot save theme: No user logged in');
-            alert('Please log in to save theme settings');
+            themeSay('Sign in again to save your colours.', 'error'); // <Jun Kai/> the page's status line, no browser box
             return;
         }
         
@@ -1180,12 +1216,16 @@ function saveThemeSettings() {
         saveIndividualPageSettings();
         
         applyThemeSettings();
-        showSaveMessage();
-        
+        // <Jun Kai start>
+        themeMarkUnsaved(false);
+        themeSay('Your colour changes are saved.', 'ok');
+        renderSectionList();
+        // <Jun Kai end>
+
         console.log(`✅ Saved theme settings for user ${currentUserId}`);
     } catch (e) {
         console.error('Failed to save theme settings:', e);
-        alert('Failed to save theme settings. Please try again.');
+        themeSay('Your colours could not be saved. Try again.', 'error'); // <Jun Kai/>
     }
 }
 
@@ -1205,134 +1245,138 @@ function showSaveMessage() {
     }, 3000);
 }
 
-// Render section list in sidebar
+// <Jun Kai start> Style & Theme B: every page's colours are a row that folds open. Only one row is open at a time;
+// the editor (override switch, colour groups) waits in .theme-editor-home and moves into the open row, so the
+// functions that fill it (renderThemeControls, updateSectionTitle) work as before.
+let themeRowOpen = true;
+let themeUnsaved = false;
+
+// a colour from storage or a saved theme goes into style="" and onclick="" text, so only plain colour values pass
+function themeSafeColor(value, fallback = '#E2E8F0') {
+    const text = String(value || '').trim();
+    return /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(text) ? text : fallback;
+}
+
+function themeSay(text, kind = 'ok') {
+    const box = document.getElementById('theme-status');
+    if (!box) return;
+    box.textContent = text || '';
+    box.dataset.kind = kind;
+    box.hidden = !text;
+}
+
+function themeMarkUnsaved(on) {
+    themeUnsaved = !!on;
+    const button = document.getElementById('theme-save-btn');
+    if (button) button.classList.toggle('has-changes', themeUnsaved);
+    if (themeUnsaved) themeSay('You have colour changes that are not saved yet. Save colour changes keeps them.', 'warn');
+}
+
+// the colours a page really shows: its own, or the overall ones while it follows the overall theme
+function themeEffectiveColors(sectionId) {
+    const section = themeConfig.sections.find(s => s.id === sectionId);
+    const own = themeSettings[sectionId] || { useGlobal: true, colors: {} };
+    const global = (themeSettings.global && themeSettings.global.colors) || {};
+    if (!section || section.isGlobal) return { ...global };
+    return own.useGlobal ? { ...global } : { ...global, ...(own.colors || {}) };
+}
+
+const THEME_CHEVRON = '<svg class="theme-row-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>';
+
 function renderSectionList() {
     const container = document.getElementById('theme-section-list');
+    const editor = document.getElementById('theme-editor');
+    const home = document.querySelector('#theme-settings-page .theme-editor-home');
+    // the editor goes back to its holder first, so rebuilding the rows never removes it
+    if (editor && home && editor.parentElement !== home) home.appendChild(editor);
+    if (!container) return;
     container.innerHTML = '';
-    
-    // Get current user role
+
     const userRole = sessionStorage.getItem('userRole');
-    
-    // Filter sections based on role
-    const visibleSections = themeConfig.sections.filter(section => {
-        // If section has no requiredRole, it's visible to everyone
-        if (!section.requiredRole) return true;
-        
-        // If section requires system_admin, only show to system_admin
-        return userRole === 'system_admin';
-    });
-    
+    const visibleSections = themeConfig.sections.filter(section =>
+        !section.isSavedThemes && (!section.requiredRole || userRole === 'system_admin'));
+
     visibleSections.forEach(section => {
-        const item = document.createElement('div');
-        item.className = 'theme-section-item';
-        item.onclick = () => selectSection(section.id);
-        
-        item.innerHTML = `
-            <span class="section-icon">${section.icon}</span>
-            <span>${section.name}</span>
-            ${section.isGlobal ? '<span class="section-badge">GLOBAL</span>' : ''}
-        `;
-        
-        if (section.id === currentSection) {
-            item.classList.add('active');
-        }
-        
-        container.appendChild(item);
+        const open = themeRowOpen && section.id === currentSection;
+        const own = themeSettings[section.id];
+        const tag = section.isGlobal
+            ? '<span class="ui-tag is-purple">Global</span>'
+            : (own && own.useGlobal === false ? '<span class="ui-tag is-blue">Own colours</span>' : '<span class="ui-tag">Overall theme</span>');
+        const colors = themeEffectiveColors(section.id);
+        const dots = ['page-background', 'card-background', 'primary-text', 'button-color']
+            .map(key => `<span style="--theme-dot: ${themeSafeColor(colors[key])};"></span>`).join(''); // a custom property: dark mode leaves it as it is
+
+        const row = document.createElement('div');
+        row.className = 'ui-card theme-row' + (open ? ' open' : '');
+        row.dataset.section = section.id;
+        row.innerHTML = `
+            <button type="button" class="theme-row-head" id="theme-row-${section.id}" aria-expanded="${open}" aria-controls="theme-row-body-${section.id}">
+                <span class="theme-row-name"></span>
+                <span class="theme-row-dots" aria-hidden="true">${dots}</span>
+                ${tag}
+                ${THEME_CHEVRON}
+            </button>
+            <div class="theme-row-body" id="theme-row-body-${section.id}" role="region" aria-labelledby="theme-row-${section.id}"${open ? '' : ' hidden'}></div>`;
+        row.querySelector('.theme-row-name').textContent = section.name;
+        row.querySelector('.theme-row-head').addEventListener('click', () => themeToggleRow(section.id));
+        container.appendChild(row);
+        if (open && editor) row.querySelector('.theme-row-body').appendChild(editor);
     });
 }
 
-// Select a section
+// a click on a row: opens it, or closes it when it is the open one
+function themeToggleRow(sectionId) {
+    if (themeRowOpen && sectionId === currentSection) {
+        themeRowOpen = false;
+        renderSectionList();
+        return;
+    }
+    selectSection(sectionId);
+}
+
 function selectSection(sectionId) {
+    const section = themeConfig.sections.find(s => s.id === sectionId);
+    if (!section || section.isSavedThemes) {
+        // the saved themes are the strip on top now
+        document.getElementById('theme-saved-title')?.scrollIntoView({ block: 'start' });
+        return;
+    }
     currentSection = sectionId;
+    themeRowOpen = true;
     renderSectionList();
     renderThemeControls(sectionId);
     updateSectionTitle(sectionId);
-    
-    // Special handling for saved-themes UI elements
-    const overrideContainer = document.getElementById('override-toggle-container');
-    const resetGlobalBtn = document.getElementById('reset-to-global-btn');
-    const saveChangesBtn = document.querySelector('.btn-primary[onclick="saveThemeSettings()"]');
-    const resetAllBtn = document.querySelector('.btn-secondary[onclick="resetAllToDefaults()"]');
-    
-    if (sectionId === 'saved-themes') {
-        // Hide theme control buttons for saved-themes section
-        if (overrideContainer) overrideContainer.style.display = 'none';
-        if (resetGlobalBtn) resetGlobalBtn.style.display = 'none';
-        if (saveChangesBtn) saveChangesBtn.style.display = 'none';
-        if (resetAllBtn) resetAllBtn.style.display = 'none';
-    } else {
-        // Show theme control buttons for other sections
-        if (saveChangesBtn) saveChangesBtn.style.display = '';
-        if (resetAllBtn) resetAllBtn.style.display = '';
-        // Override toggle and reset button visibility handled elsewhere
-    }
 }
 
-// Update section title
 function updateSectionTitle(sectionId) {
     const section = themeConfig.sections.find(s => s.id === sectionId);
-    document.getElementById('current-section-title').textContent = section.name;
-    
+    if (!section) return;
+    const title = document.getElementById('current-section-title');
+    if (title) title.textContent = section.name;
+    const previewFor = document.getElementById('theme-preview-for');
+    if (previewFor) previewFor.textContent = themePreviewCaption(section.name); // <Jun Kai/> says when dark mode shows only the button colour
+
     const overrideContainer = document.getElementById('override-toggle-container');
     const resetBtn = document.getElementById('reset-to-global-btn');
-    
+    const toggle = document.getElementById('use-global-theme');
     if (section.isGlobal) {
-        overrideContainer.style.display = 'none';
-        resetBtn.style.display = 'none';
-    } else {
-        overrideContainer.style.display = 'flex';
-        resetBtn.style.display = 'inline-block';
-        
-        const useGlobal = themeSettings[sectionId]?.useGlobal ?? true;
-        document.getElementById('use-global-theme').checked = useGlobal;
+        if (overrideContainer) overrideContainer.style.display = 'none';
+        if (resetBtn) resetBtn.style.display = 'none';
+        return;
     }
+    const useGlobal = themeSettings[sectionId]?.useGlobal ?? true;
+    if (overrideContainer) overrideContainer.style.display = 'flex';
+    if (resetBtn) resetBtn.style.display = useGlobal ? 'none' : 'inline-block';
+    if (toggle) toggle.checked = useGlobal;
 }
+// <Jun Kai end>
 
 // Render theme controls for a section
 function renderThemeControls(sectionId) {
     const container = document.getElementById('theme-settings-form');
-    
-    // Get the saved-themes panel (it's inside the container)
-    const savedThemesPanel = document.getElementById('saved-themes-panel');
-    
-    // SPECIAL HANDLING FOR SAVED-THEMES
-    if (sectionId === 'saved-themes') {
-        // Hide all other content in container (color groups, etc.)
-        Array.from(container.children).forEach(child => {
-            if (child.id !== 'saved-themes-panel') {
-                child.style.display = 'none';
-            }
-        });
-        
-        // Show the saved-themes panel
-        if (savedThemesPanel) {
-            savedThemesPanel.style.display = 'block';
-            
-            // Initialize saved themes section
-            if (typeof initSavedThemesSection === 'function') {
-                initSavedThemesSection();
-            } else {
-                console.error('initSavedThemesSection function not found');
-            }
-        } else {
-            console.error('saved-themes-panel element not found in HTML');
-        }
-        
-        return; // Exit early don't render color controls
-    }
-    
-    // Hide saved-themes panel, show color controls
-    if (savedThemesPanel) {
-        savedThemesPanel.style.display = 'none';
-    }
-    
-    // Remove all children EXCEPT saved-themes-panel
-    Array.from(container.children).forEach(child => {
-        if (child.id !== 'saved-themes-panel') {
-            child.remove();
-        }
-    });
-    
+    if (!container) return; // <Jun Kai/> the saved themes have their own strip on top now
+    container.innerHTML = '';
+
     const section = themeConfig.sections.find(s => s.id === sectionId);
     const sectionSettings = themeSettings[sectionId] || { useGlobal: !section.isGlobal, colors: {} };
     const isDisabled = sectionSettings.useGlobal && !section.isGlobal;
@@ -1484,12 +1528,128 @@ function hexToRgb(color) {
     };
 }
 
+// <Jun Kai start> contrast of two theme colours (1 to 21); a colour it cannot read counts as readable
+function themeContrast(a, b) {
+    const one = hexToRgb(a);
+    const two = hexToRgb(b);
+    if (!one || !two) return 21;
+    const lum = ({ r, g, b: blue }) => [r, g, blue].map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; })
+        .reduce((sum, v, i) => sum + v * [0.2126, 0.7152, 0.0722][i], 0);
+    const [hi, lo] = [lum(one), lum(two)].sort((x, y) => y - x);
+    return (hi + 0.05) / (lo + 0.05);
+}
+// <Jun Kai end>
+
 function isDarkThemeColor(color) {
     const rgb = hexToRgb(color);
     if (!rgb) return false;
     const luminance = (0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b) / 255;
     return luminance < 0.45;
 }
+
+// <Jun Kai start> Option A, "tinted glass" (picked 26 Nov 2026): a theme's colours reach the cards and the accent of the
+// rebuilt pages through the kit's colour variables instead of old selector lists, with these rules:
+//   - a colour that is still the built-in default was not chosen, so it changes nothing: an untouched account looks
+//     exactly like the kit;
+//   - the card colour tints the glass only when every text that will sit on it can still be read (4.5:1): the theme's
+//     own text colours when they are readable there, otherwise the kit's, and the kit's red warnings;
+//   - the button colour becomes the accent (buttons, links, focus rings, the open sidebar item, chips), darkened only as
+//     far as needed for white text and for links on the card (4.5:1);
+//   - dark mode (its own small stylesheet, the light one is switched off there) takes only the accent: buttons keep the
+//     same filled colour when white text reads on it and it stands out from the dark card (3:1), links and focus rings
+//     get a lighter shade that reads on the dark card (4.5:1).
+// A page with its own colours gets the same, limited to that page. Status tags, danger buttons, notices, table heads
+// and charts keep their own colours.
+const THEME_KIT = { card: '#FFFFFF', darkCard: '#111A2B', text: '#1E293B', muted: '#64748B', red: '#B91C1C' };
+
+function themeHex(value) {
+    const color = normalizeThemeColor(value);
+    if (/^#[0-9A-F]{6}$/.test(color)) return color;
+    return /^#[0-9A-F]{8}$/.test(color) ? color.slice(0, 7) : null;
+}
+
+// a colour that differs from the built-in default, or null when it was never chosen
+function themeChosen(colors, key) {
+    const value = colors && colors[key];
+    if (!value || themeSameColor(value, getCustomDefaultColors()[key])) return null;
+    return themeHex(value);
+}
+
+function themeMixHex(from, to, share) {
+    const a = parseInt(from.slice(1), 16);
+    const b = parseInt(to.slice(1), 16);
+    const channel = (shift) => Math.round(((a >> shift) & 255) * (1 - share) + ((b >> shift) & 255) * share);
+    return '#' + [16, 8, 0].map((shift) => channel(shift).toString(16).padStart(2, '0')).join('').toUpperCase();
+}
+
+// the colour itself when it reaches the contrast on every background, otherwise mixed step by step toward black (or
+// white) until it does; null when even that is not enough
+function themeReadable(color, backgrounds, min, toward) {
+    for (let step = 0; step <= 20; step++) {
+        const candidate = step ? themeMixHex(color, toward, step / 20) : color;
+        if (backgrounds.every((bg) => themeContrast(candidate, bg) >= min)) return candidate;
+    }
+    return null;
+}
+
+// what the rules above make of one set of colours in light mode; null fields mean "the kit's own"
+function themeKitColours(colors) {
+    const card = themeChosen(colors, 'card-background');
+    const text = themeChosen(colors, 'card-primary-text');
+    const sub = themeChosen(colors, 'card-secondary-text');
+    const button = themeChosen(colors, 'button-color');
+    const buttonText = themeChosen(colors, 'button-text-color');
+    const readableOn = (color, bg) => (color && themeContrast(color, bg) >= 4.5 ? color : null);
+    let surface = THEME_KIT.card;
+    let tinted = null;
+    if (card) {
+        const willSit = [readableOn(text, card) || THEME_KIT.text, readableOn(sub, card) || THEME_KIT.muted, THEME_KIT.red];
+        if (willSit.every((color) => themeContrast(color, card) >= 4.5)) { surface = card; tinted = card; }
+    }
+    const accent = button ? themeReadable(button, ['#FFFFFF', surface], 4.5, '#000000') : null;
+    return {
+        card: tinted,
+        text: readableOn(text, surface),
+        sub: readableOn(sub, surface),
+        border: themeChosen(colors, 'card-border-color'),
+        accent,
+        onAccent: accent ? (buttonText && themeContrast(buttonText, accent) >= 4.5 ? buttonText : '#FFFFFF') : null
+    };
+}
+
+// light mode: the card tint, the card texts and the accent of one scope (the whole page or one page)
+function themeKitLight(colors, scope) {
+    const kit = themeKitColours(colors);
+    const cardVars = [];
+    const scopeVars = [];
+    if (kit.card) cardVars.push(`--l3-card: color-mix(in srgb, ${kit.card} 82%, transparent)`, `--theme-card-bg: ${kit.card}`, `--l3-field: color-mix(in srgb, ${kit.card} 70%, transparent)`);
+    if (kit.text) cardVars.push(`--theme-text-color: ${kit.text}`);
+    if (kit.sub) cardVars.push(`--color-dark-gray: ${kit.sub}`, `--color-muted: ${kit.sub}`);
+    if (kit.border) cardVars.push(`--l3-card-edge: color-mix(in srgb, ${kit.border} 80%, transparent)`, `--theme-border-color: ${kit.border}`);
+    if (kit.accent) {
+        scopeVars.push(`--theme-btn-primary-bg: ${kit.accent}`, `--theme-btn-primary-text: ${kit.onAccent}`, `--l3-focus: ${kit.accent}`, `--l3-link: ${kit.accent}`);
+    }
+    let css = '';
+    if (scopeVars.length) css += `${scope} { ${scopeVars.join('; ')}; }\n`;
+    if (cardVars.length) css += `${scope === ':root' ? '.ui-card' : scope + ' .ui-card'} { ${cardVars.join('; ')}; }\n`;
+    return css;
+}
+
+// dark mode: only the accent
+function themeKitDark(colors, scope) {
+    const button = themeChosen(colors, 'button-color');
+    if (!button) return '';
+    const vars = [];
+    const fill = themeReadable(button, ['#FFFFFF'], 4.5, '#000000');
+    if (fill && themeContrast(fill, THEME_KIT.darkCard) >= 3) vars.push(`--theme-btn-primary-bg: ${fill}`, '--theme-btn-primary-text: #FFFFFF');
+    const link = themeReadable(button, [THEME_KIT.darkCard], 4.5, '#FFFFFF');
+    if (link) {
+        vars.push(`--l3-link: ${link}`, `--l3-focus: ${link}`);
+    }
+    if (!vars.length) return '';
+    return `${scope === ':root' ? ':root[data-theme="dark"]' : ':root[data-theme="dark"] ' + scope} { ${vars.join('; ')}; }\n`;
+}
+// <Jun Kai end>
 
 function applyBackgroundCompanionColors(sectionId, backgroundColor) {
     if (!themeSettings[sectionId]?.colors) return;
@@ -1526,8 +1686,9 @@ function applyBackgroundCompanionColors(sectionId, backgroundColor) {
 function createColorControl(option, sectionId, isDisabled) {
     const control = document.createElement('div');
     control.className = 'theme-control' + (isDisabled ? ' disabled' : '');
-    
-    const currentColor = normalizeThemeColor(themeSettings[sectionId]?.colors[option.id] || option.default);
+    control.dataset.option = option.id; // <Jun Kai/> so the chosen swatch gets the focus back after a redraw
+
+    const currentColor = themeSafeColor(normalizeThemeColor(themeSettings[sectionId]?.colors[option.id] || option.default), normalizeThemeColor(option.default)); // <Jun Kai/>
     
     const selectors = getSelectorsForOption(sectionId, option.id);
     const selectorCount = selectors.length;
@@ -1584,6 +1745,11 @@ function updateColor(sectionId, colorId, value) {
     
     renderThemeControls(sectionId);
     updatePreview(sectionId);
+    // <Jun Kai start>
+    themeMarkUnsaved(true);
+    renderSectionList();
+    document.querySelector(`#theme-settings-form [data-option="${colorId}"] .theme-swatch-button.selected`)?.focus();
+    // <Jun Kai end>
 }
 
 // Update color from hex input
@@ -1602,6 +1768,7 @@ function updateColorFromHex(sectionId, colorId, value) {
         themeSettings[sectionId] = { useGlobal: false, colors: {} };
     }
     themeSettings[sectionId].colors[colorId] = value.toUpperCase();
+    themeMarkUnsaved(true); // <Jun Kai/>
     
     const colorPicker = document.getElementById(`color-${sectionId}-${colorId}`);
     if (colorPicker) {
@@ -1621,23 +1788,33 @@ function toggleGlobalThemeOverride() {
     
     themeSettings[currentSection].useGlobal = useGlobal;
     renderThemeControls(currentSection);
+    // <Jun Kai start>
+    updateSectionTitle(currentSection);
+    themeMarkUnsaved(true);
+    renderSectionList();
+    // <Jun Kai end>
 }
 
 // Reset section to global theme
-function resetSectionToGlobal() {
+async function resetSectionToGlobal() { // <Jun Kai/> async: it waits for the kit dialog
     if (currentSection === 'global') return;
-    
-    if (confirm(`Reset ${themeConfig.sections.find(s => s.id === currentSection).name} to use the Admin Overall Theme?`)) {
+    const pageName = themeConfig.sections.find(s => s.id === currentSection).name;
+    if (await uiConfirm({ title: `Use the overall colours on ${pageName}?`, message: 'Its own colours are replaced by the Admin Overall Theme. Save colour changes keeps it.', confirmText: 'Use the overall colours' })) {
         themeSettings[currentSection].useGlobal = true;
         themeSettings[currentSection].colors = { ...themeSettings.global.colors };
         renderThemeControls(currentSection);
-        document.getElementById('use-global-theme').checked = true;
+        // <Jun Kai start>
+        updateSectionTitle(currentSection);
+        themeMarkUnsaved(true);
+        renderSectionList();
+        // <Jun Kai end>
     }
 }
 
 // Reset all to defaults
 async function resetAllToDefaults() {
-    if (!confirm('Reset all theme settings to default values? This will also deactivate your active theme. This cannot be undone.')) {
+    // <Jun Kai/> the kit dialog instead of the browser box
+    if (!(await uiConfirm({ title: 'Reset all colours to the defaults?', message: 'Every page goes back to the default colours and no saved theme is in use. Your saved themes stay in the list.', confirmText: 'Reset all', danger: true }))) {
         return;
     }
     
@@ -1682,30 +1859,71 @@ async function resetAllToDefaults() {
             await loadSavedThemes();
         }
         
-        showSaveMessage();
-        alert('✅ Reset to defaults complete! Your active theme has been deactivated.');
+        // <Jun Kai start>
+        renderSectionList();
+        updatePreview(currentSection);
+        themeMarkUnsaved(false);
+        themeSay('All colours are back to the defaults, and no saved theme is in use.', 'ok');
+        // <Jun Kai end>
         
     } catch (error) {
         console.error('❌ Error resetting to defaults:', error);
-        alert('Failed to reset settings. Please try again.');
+        themeSay('The colours could not be reset. Try again.', 'error'); // <Jun Kai/>
     }
 }
 
 // Update preview
 function updatePreview(sectionId) {
-    const settings = themeSettings[sectionId];
-    if (!settings) return;
-    
-    const colors = settings.colors;
+    // <Jun Kai start> a small page: header, sidebar and a card, in the colours this page shows
     const preview = document.getElementById('theme-preview');
-    
-    preview.style.setProperty('--preview-bg', colors['page-background'] || '#ffffff');
-    preview.style.setProperty('--preview-card-bg', colors['card-background'] || '#f8fafc');
-    preview.style.setProperty('--preview-border', colors['card-border-color'] || '#e2e8f0');
-    preview.style.setProperty('--preview-heading', colors['primary-text'] || '#1e293b');
-    preview.style.setProperty('--preview-text', colors['secondary-text'] || '#64748b');
-    preview.style.setProperty('--preview-btn-bg', colors['button-color'] || '#0a1e81');
-    preview.style.setProperty('--preview-btn-text', colors['button-text-color'] || '#ffffff');
+    if (!preview) return;
+    const colors = themeEffectiveColors(sectionId);
+    const frame = themeEffectiveColors('admin-dashboard');
+    const set = (name, value, fallback) => preview.style.setProperty(name, themeSafeColor(value, fallback));
+    set('--preview-bg', colors['page-background'], '#F3F6FA');
+    // the card and its texts and the buttons as the pages will really show them (option A: a colour that would not read
+    // is left out, the accent is darkened until white text reads on it)
+    const kit = themeKitColours(colors);
+    set('--preview-card-bg', kit.card, THEME_KIT.card);
+    set('--preview-border', kit.border, '#E2E8F0');
+    set('--preview-heading', kit.text, THEME_KIT.text);
+    set('--preview-text', kit.sub, THEME_KIT.muted);
+    set('--preview-btn-bg', kit.accent, '#2563EB');
+    set('--preview-btn-text', kit.onAccent, '#FFFFFF');
+    // the page title outside the card: the main text colour when it reads on the page colour, as on the real pages
+    const title = themeChosen(colors, 'primary-text');
+    const pageColour = themeHex(colors['page-background']) || '#F3F6FA';
+    set('--preview-title', title && themeContrast(title, pageColour) >= 4.5 ? title : null, THEME_KIT.text);
+    set('--preview-header-bg', frame['admin-header-bg'], '#FFFFFF');
+    set('--preview-header-text', frame['primary-header-text'], '#1E293B');
+    set('--preview-nav-bg', frame['navbar-background'], '#FFFFFF');
+    set('--preview-nav-text', frame['navbar-text'] || frame['nav-text-color'], '#334155');
+    // in dark mode the preview is a dark admin page with only the theme's accent, as the real pages show it (themeKitDark)
+    if (document.documentElement.dataset.theme === 'dark') {
+        const dark = { '--preview-bg': '#0B1120', '--preview-header-bg': '#0F172A', '--preview-header-text': '#F1F5F9', '--preview-nav-bg': '#0F172A',
+            '--preview-nav-text': '#CBD5E1', '--preview-card-bg': THEME_KIT.darkCard, '--preview-border': '#263244', '--preview-heading': '#E5E7EB',
+            '--preview-text': '#A7B4C4', '--preview-title': '#F1F5F9', '--preview-btn-bg': '#2563EB', '--preview-btn-text': '#FFFFFF' };
+        const button = themeChosen(colors, 'button-color');
+        const fill = button ? themeReadable(button, ['#FFFFFF'], 4.5, '#000000') : null;
+        if (fill && themeContrast(fill, THEME_KIT.darkCard) >= 3) dark['--preview-btn-bg'] = fill;
+        Object.entries(dark).forEach(([name, value]) => preview.style.setProperty(name, value));
+    }
+    // <Jun Kai end>
+}
+
+// <Jun Kai/> the preview follows a Light / Dark switch right away (colorScheme.js sends admin-color-scheme)
+window.addEventListener('admin-color-scheme', () => {
+    if (document.getElementById('theme-preview') && typeof currentSection !== 'undefined') updatePreview(currentSection);
+    const previewFor = document.getElementById('theme-preview-for');
+    const section = typeof currentSection !== 'undefined' && themeConfig.sections.find((s) => s.id === currentSection);
+    if (previewFor && section) previewFor.textContent = themePreviewCaption(section.name);
+});
+
+// <Jun Kai/> in dark mode a theme shows only its button colour (option A), so the preview says so instead of promising every change
+function themePreviewCaption(name) {
+    return document.documentElement.dataset.theme === 'dark'
+        ? `${name}. In dark mode only the button colour shows here. Switch to light mode to see the other colours.`
+        : `${name}. Changes show here before you save.`;
 }
 
 // Apply theme settings to the actual page using CSS selectors
@@ -1718,14 +1936,19 @@ function applyThemeSettings() {
     }
     
     let css = '';
-    
+
+    // <Jun Kai start> a frame nobody changed since before the redesign becomes the glass frame
+    themeAdoptGlassFrame(themeSettings.global && themeSettings.global.colors);
+    themeAdoptGlassFrame(themeSettings['admin-dashboard'] && themeSettings['admin-dashboard'].colors);
+    // <Jun Kai end>
+
     themeConfig.sections.forEach(section => {
         const sectionSettings = themeSettings[section.id];
         if (!sectionSettings) return;
-        
+
         const useGlobal = section.isGlobal ? false : (sectionSettings.useGlobal ?? true);
         const colors = useGlobal && themeSettings.global ? themeSettings.global.colors : sectionSettings.colors;
-        
+
         if (!colors) return;
         
         const mapping = themeConfig.selectorMapping[section.id];
@@ -1738,10 +1961,32 @@ function applyThemeSettings() {
                 const color = colors[optionId];
                 
                 if (!color || !selectors || selectors.length === 0) return;
-                
+
                 let cssProperty = 'color';
                 let cssValue = color;
-                
+
+                // <Jun Kai start> glass frame (redesign): the header and sidebar colours tint the frosted panels,
+                // and the overall page colour sits under the colour wash, so none of them is painted solid. A page
+                // with its own colours switched on is still painted in its own page colour.
+                if (THEME_GLASS_VARIABLES[optionId]) {
+                    // a dark colour stays nearly solid: mixed with the pale page it would turn pale, and the
+                    // light text picked for it could no longer be read
+                    const solid = isDarkThemeColor(cssValue) ? ` ${THEME_GLASS_VARIABLES[optionId]}-share: 92%;` : '';
+                    css += `:root { ${THEME_GLASS_VARIABLES[optionId]}: ${cssValue};${solid} }\n`;
+                    return;
+                }
+                // a page text colour that cannot be read on the page colour (below 4.5:1, like the old default grey
+                // #959595 on white) is left out, so the page keeps its own readable colour
+                if ((optionId === 'primary-text' || optionId === 'secondary-text') && colors['page-background'] && themeContrast(cssValue, colors['page-background']) < 4.5) return;
+                if (optionId === 'page-background') {
+                    if (section.isGlobal) {
+                        css += `:root { --l3-page-tint: ${cssValue}; }\n`; // <Jun Kai/> the preview takes its colours from updatePreview
+                        return;
+                    }
+                    if (useGlobal) return;
+                }
+                // <Jun Kai end>
+
                 if (optionId.includes('background') || optionId.includes('-bg') || optionId === 'page-background' || 
                     optionId === 'card-background' || optionId === 'navbar-background' || 
                     optionId === 'navbar-hover' ||
@@ -1805,6 +2050,29 @@ function applyThemeSettings() {
         });
     });
     
+    // <Jun Kai start> Option A: the overall colours, then every rebuilt page that has its own colours switched on (an
+    // old-style page keeps its selector lists above); dark mode's accent goes into its own stylesheet, cleared when empty
+    let dark = '';
+    const globalColors = themeSettings.global && themeSettings.global.colors;
+    css += themeKitLight(globalColors, ':root');
+    dark += themeKitDark(globalColors, ':root');
+    themeConfig.sections.forEach((section) => {
+        if (section.isGlobal || section.isSavedThemes || section.id === 'admin-dashboard') return;
+        const own = themeSettings[section.id];
+        if (!own || own.useGlobal !== false) return;
+        const page = document.getElementById(section.id);
+        if (!page || !page.querySelector('.ui-card')) return;
+        css += themeKitLight(own.colors, '#' + section.id);
+        dark += themeKitDark(own.colors, '#' + section.id);
+    });
+    let darkEl = document.getElementById('dynamic-theme-dark-accent');
+    if (!darkEl) {
+        darkEl = document.createElement('style');
+        darkEl.id = 'dynamic-theme-dark-accent';
+        document.head.appendChild(darkEl);
+    }
+    darkEl.textContent = dark;
+    // <Jun Kai end>
     styleEl.textContent = css;
 }
 
@@ -1872,125 +2140,209 @@ async function loadSavedThemes() {
     }
 }
 
-// Update the saved themes UI
+// <Jun Kai start> Style & Theme B: the saved themes are picture cards on top, with Apply. The card that saves the
+// current colours sits next to them, outside #saved-themes-list, so a reload of the list keeps what was typed.
+const THEME_MAX_SAVED = 6;
+
 function updateSavedThemesUI() {
     const countElement = document.getElementById('saved-themes-count');
     const listElement = document.getElementById('saved-themes-list');
-    
-    if (!countElement || !listElement) {
-        console.warn('⚠️ Saved themes UI elements not found');
-        return;
-    }
-    
-    // Update count
+    if (!countElement || !listElement) return;
+
     countElement.textContent = savedThemesCache.length;
-    
-    // Clear list
     listElement.innerHTML = '';
-    
-    // Show no themes message if empty
-    if (savedThemesCache.length === 0) {
-        listElement.innerHTML = `
-            <div class="no-themes-message">
-                <p>No saved themes yet. Save your first theme above!</p>
-            </div>
-        `;
-        return;
+    savedThemesCache.forEach(theme => listElement.appendChild(createSavedThemeCard(theme)));
+    themeUpdateSaveCard();
+    renderStarterThemes(); // <Jun Kai/> a starter card says whether it is already one of the saved themes
+}
+
+// <Jun Kai start> Starter themes (26 Nov 2026): the user asked for a better looking green than the dark green header and
+// strong light green of the mock-ups. Emerald keeps the header and sidebar white, the page a very light mint and the
+// buttons a deep emerald that white text reads on (5.5:1). Taking one saves it as one of the admin's own themes and uses it.
+const THEME_STARTERS = [
+    {
+        name: 'Emerald',
+        about: 'Light mint page, white header and sidebar, emerald buttons',
+        colors: {
+            'page-background': '#ecfdf5', 'primary-text': '#064e3b', 'secondary-text': '#3f6b5a',
+            'admin-header-bg': '#ffffff', 'primary-header-text': '#064e3b', 'secondary-header-text': '#3f6b5a',
+            'navbar-background': '#ffffff', 'navbar-primary-text': '#064e3b', 'navbar-secondary-text': '#3f6b5a',
+            'navbar-active-selection': '#d1fae5', 'navbar-hover': '#d1fae5',
+            'card-background': '#ffffff', 'card-border-color': '#bbf0d6', 'card-primary-text': '#064e3b', 'card-secondary-text': '#3f6b5a',
+            'button-color': '#047857', 'button-text-color': '#ffffff'
+        }
     }
-    
-    // Render each theme card
-    savedThemesCache.forEach(theme => {
-        const themeCard = createSavedThemeCard(theme);
-        listElement.appendChild(themeCard);
+];
+
+// the saved theme with the same name, if the admin already took this starter
+function themeStarterSaved(starter) {
+    return savedThemesCache.find(theme => String(theme.theme_name || '').trim().toLowerCase() === starter.name.toLowerCase()) || null;
+}
+
+function renderStarterThemes() {
+    const list = document.getElementById('starter-themes-list');
+    if (!list) return;
+    list.innerHTML = '';
+    THEME_STARTERS.forEach((starter, index) => {
+        const saved = themeStarterSaved(starter);
+        const full = !saved && savedThemesCache.length >= THEME_MAX_SAVED;
+        const card = document.createElement('div');
+        card.className = 'ui-card theme-saved-card theme-starter-card' + (saved && saved.is_active ? ' active' : '');
+        const strip = extractPreviewColors({ global: { colors: starter.colors } })
+            .map(color => `<span style="--theme-dot: ${themeSafeColor(color)};"></span>`).join('');
+        let action = '';
+        if (saved && saved.is_active) action = '<span class="ui-tag is-green">In use</span>';
+        else action = `<button type="button" class="ui-btn ui-btn-secondary theme-saved-apply" data-starter="${index}"${full ? ' disabled' : ''}>${saved ? 'Apply' : 'Use this theme'}</button>`;
+        const note = saved
+            ? 'In your saved themes'
+            : (full ? 'All 6 places are used. Delete a saved theme first.' : 'Saved into your themes when you use it');
+        card.innerHTML = `
+            <div class="theme-saved-strip" aria-hidden="true">${strip}</div>
+            <div class="theme-saved-foot">
+                <div class="theme-saved-name"></div>
+                ${action}
+            </div>
+            <div class="theme-starter-about"></div>
+            <div class="theme-saved-sub"><span class="theme-starter-note"></span></div>`;
+        card.querySelector('.theme-saved-name').textContent = starter.name;
+        card.querySelector('.theme-starter-about').textContent = starter.about;
+        card.querySelector('.theme-starter-note').textContent = note;
+        const button = card.querySelector('[data-starter]');
+        if (button) {
+            button.setAttribute('aria-label', `${saved ? 'Apply' : 'Use'} the starter theme ${starter.name}`);
+            button.addEventListener('click', () => useStarterTheme(index));
+        }
+        list.appendChild(card);
     });
 }
 
-// Create a saved theme card element
+async function useStarterTheme(index) {
+    const starter = THEME_STARTERS[index];
+    if (!starter) return;
+    const saved = themeStarterSaved(starter);
+    if (saved) return activateSavedTheme(saved.id);
+    if (savedThemesCache.length >= THEME_MAX_SAVED) {
+        themeSay('All 6 places are used. Delete a saved theme first, then use the starter theme.', 'error');
+        return;
+    }
+    const button = document.querySelector(`#starter-themes-list [data-starter="${index}"]`);
+    if (button) button.disabled = true;
+    const themeData = { global: { useGlobal: false, colors: { ...starter.colors } } };
+    try {
+        const response = await fetch('/api/admin/saved-themes', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ theme_name: starter.name, theme_data: themeData, is_active: true })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+        applyThemeData(themeData);
+        themeMarkUnsaved(false);
+        renderSectionList();
+        renderThemeControls(currentSection);
+        updatePreview(currentSection);
+        themeSay(`${starter.name} is saved in your themes and in use.`, 'ok');
+        await loadSavedThemes();
+    } catch (error) {
+        console.error('Error using the starter theme:', error);
+        themeSay(`${starter.name} could not be saved: ${error.message}. Try again.`, 'error');
+        if (button) button.disabled = false;
+    }
+}
+// <Jun Kai end>
+
+// the save card says when the six places are used
+function themeUpdateSaveCard() {
+    const full = savedThemesCache.length >= THEME_MAX_SAVED;
+    const open = document.getElementById('theme-save-open');
+    const text = document.getElementById('theme-save-open-text');
+    if (open) open.disabled = full;
+    if (text) {
+        text.textContent = full
+            ? 'All 6 places are used. Delete a theme to save another one.'
+            : (savedThemesCache.length ? 'Save the current colours as a theme' : 'No saved themes yet. Save the current colours as your first theme');
+    }
+    if (full) closeSaveThemeForm();
+}
+
+function openSaveThemeForm() {
+    const form = document.getElementById('theme-save-form');
+    const open = document.getElementById('theme-save-open');
+    if (!form || !open || open.disabled) return;
+    form.hidden = false;
+    open.hidden = true;
+    open.setAttribute('aria-expanded', 'true');
+    document.getElementById('new-theme-name')?.focus();
+}
+
+function closeSaveThemeForm() {
+    const form = document.getElementById('theme-save-form');
+    const open = document.getElementById('theme-save-open');
+    if (form) form.hidden = true;
+    if (open) {
+        open.hidden = false;
+        open.setAttribute('aria-expanded', 'false');
+    }
+    clearSaveThemeForm();
+}
+
 function createSavedThemeCard(theme) {
     const card = document.createElement('div');
-    card.className = `saved-theme-card ${theme.is_active ? 'active-theme' : ''}`;
+    card.className = 'ui-card theme-saved-card' + (theme.is_active ? ' active' : '');
     card.dataset.themeId = theme.id;
-    
-    // Extract some colors for preview (first 4 colors from theme data)
-    const previewColors = extractPreviewColors(theme.theme_data);
-    
-    // Format date
-    const createdDate = new Date(theme.created_at).toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric'
-    });
-    
+
+    const created = new Date(theme.created_at);
+    const createdText = isNaN(created) ? '' : created.toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: 'numeric' });
+    const strip = extractPreviewColors(theme.theme_data)
+        .map(color => `<span style="--theme-dot: ${themeSafeColor(color)};"></span>`).join('');
+
     card.innerHTML = `
-        <div class="saved-theme-header">
-            <h5 class="saved-theme-name">${escapeHtml(theme.theme_name)}</h5>
-            ${theme.is_active ? '<span class="active-badge">✓ Active</span>' : ''}
+        <div class="theme-saved-strip" aria-hidden="true">${strip}</div>
+        <div class="theme-saved-foot">
+            <div class="theme-saved-name"></div>
+            ${theme.is_active
+                ? '<span class="ui-tag is-green">In use</span>'
+                : '<button type="button" class="ui-btn ui-btn-secondary theme-saved-apply" data-theme-action="apply">Apply</button>'}
         </div>
-        
-        <div class="saved-theme-preview">
-            <div class="color-preview-row">
-                ${previewColors.map(color => `
-                    <div class="color-preview-box" style="background: ${color};" title="${color}"></div>
-                `).join('')}
-            </div>
-        </div>
-        
-        <div class="saved-theme-info">
-            <small>Created: ${createdDate}</small>
-        </div>
-        
-        <div class="saved-theme-actions">
-            ${!theme.is_active ? `
-                <button onclick="activateSavedTheme(${theme.id})" class="btn btn-primary" title="Set as active theme and apply immediately">
-                    ✓ Set Active
-                </button>
-            ` : `
-                <button class="btn btn-success" disabled title="Currently active">
-                    ✓ Active
-                </button>
-            `}
-            <button onclick="renameSavedTheme(${theme.id})" class="btn btn-sm btn-secondary" title="Rename this theme">
-                ✏️ Rename
-            </button>
-            <button onclick="deleteSavedTheme(${theme.id})" class="btn btn-sm btn-danger" title="Delete this theme">
-                🗑️ Delete
-            </button>
-        </div>
-    `;
-    
+        <div class="theme-saved-sub">
+            <span>${createdText ? 'Saved ' + escapeHtml(createdText) : ''}</span>
+            <span class="theme-saved-links">
+                <button type="button" class="ui-link" data-theme-action="rename">Rename</button>
+                <button type="button" class="ui-link theme-link-danger" data-theme-action="delete">Delete</button>
+            </span>
+        </div>`;
+    const name = card.querySelector('.theme-saved-name');
+    name.textContent = theme.theme_name;
+    name.title = theme.theme_name;
+    card.querySelectorAll('[data-theme-action]').forEach(button => {
+        const label = { apply: 'Apply', rename: 'Rename', delete: 'Delete' }[button.dataset.themeAction];
+        button.setAttribute('aria-label', `${label} the theme ${theme.theme_name}`);
+        button.addEventListener('click', () => {
+            if (button.dataset.themeAction === 'apply') activateSavedTheme(theme.id);
+            else if (button.dataset.themeAction === 'rename') renameSavedTheme(theme.id);
+            else deleteSavedTheme(theme.id);
+        });
+    });
     return card;
 }
 
-// Extract preview colors from theme data
+// up to five different colours of a saved theme, for its strip
 function extractPreviewColors(themeData) {
     const colors = [];
-    
     try {
-        // Try to extract some representative colors
-        if (themeData.global) {
-            const global = themeData.global;
-            
-            // Handle new format with colors object
-            const globalColors = global.colors || global;
-            
-            if (globalColors['primary-color']) colors.push(globalColors['primary-color']);
-            if (globalColors['secondary-color']) colors.push(globalColors['secondary-color']);
-            if (globalColors['accent-color']) colors.push(globalColors['accent-color']);
-            if (globalColors['page-background']) colors.push(globalColors['page-background']);
-        }
-        
-        // If we don't have enough colors, add some defaults
-        while (colors.length < 4) {
-            colors.push('#e2e8f0');
-        }
-        
-        return colors.slice(0, 4);
-        
+        const global = themeData && themeData.global ? (themeData.global.colors || themeData.global) : {};
+        ['page-background', 'card-background', 'primary-text', 'secondary-text', 'button-color', 'card-border-color'].forEach(key => {
+            const value = normalizeThemeColor(global[key]);
+            if (value && themeSafeColor(value, '') && !colors.includes(value)) colors.push(value);
+        });
     } catch (error) {
         console.error('Error extracting preview colors:', error);
-        return ['#e2e8f0', '#cbd5e1', '#94a3b8', '#64748b'];
     }
+    while (colors.length < 4) colors.push(['#E2E8F0', '#CBD5E1', '#94A3B8', '#64748B'][colors.length]);
+    return colors.slice(0, 5);
 }
+// <Jun Kai end>
 
 // Capture current theme data from all sections
 function captureCurrentThemeData() {
@@ -2002,7 +2354,7 @@ function captureCurrentThemeData() {
         // Check if themeConfig exists
         if (typeof themeConfig === 'undefined' || !themeConfig.selectorMapping) {
             console.error('themeConfig or selectorMapping not defined');
-            alert('Theme configuration not loaded. Please refresh the page.');
+            themeSay('The colour settings did not load. Reload the page and try again.', 'error'); // <Jun Kai/>
             return null;
         }
         
@@ -2016,22 +2368,15 @@ function captureCurrentThemeData() {
             return null;
         }
         
-        // Iterate through categories (general, cards, buttons, etc.)
-        Object.keys(selectorMapping).forEach(category => {
-            const colorGroup = selectorMapping[category];
-            
-            // Iterate through color keys in each category
-            Object.keys(colorGroup).forEach(colorKey => {
-                // Use hex- prefix to match the actual input IDs
-                const inputId = `hex-${sectionId}-${colorKey}`;
-                const input = document.getElementById(inputId);
-                
-                if (input && input.value) {
-                    sectionColors[colorKey] = input.value;
-                    console.log(`  ✓ ${sectionId}.${colorKey} = ${input.value}`);
-                }
-            });
+        // <Jun Kai start> The colours come from themeSettings, where the swatches put them (updateColor). This used to
+        // read the hex-<section>-<colour> text boxes, which the page no longer has, so Save Theme always failed.
+        // A colour that was never changed is saved with its default.
+        const chosen = (themeSettings[sectionId] && themeSettings[sectionId].colors) || {};
+        getColorOptionsForSection(sectionId).forEach(option => {
+            const value = normalizeThemeColor(chosen[option.id] || option.default);
+            if (value) sectionColors[option.id] = value;
         });
+        // <Jun Kai end>
         
         // Save ONLY global colors
         if (Object.keys(sectionColors).length > 0) {
@@ -2056,7 +2401,7 @@ function captureCurrentThemeData() {
         
     } catch (error) {
         console.error('❌ Error capturing theme data:', error);
-        alert('Failed to capture theme data: ' + error.message);
+        themeSay('The current colours could not be read: ' + error.message, 'error'); // <Jun Kai/>
         return null;
     }
 }
@@ -2067,15 +2412,12 @@ async function saveCurrentTheme() {
         // Get theme name from input
         const themeNameInput = document.getElementById('new-theme-name');
         
-        if (!themeNameInput) {
-            alert('Theme name input not found. Please refresh the page.');
-            return;
-        }
+        if (!themeNameInput) return;
         
         const themeName = themeNameInput.value.trim();
         
         if (!themeName) {
-            alert('Please enter a theme name');
+            themeSay('Type a name for the theme first.', 'error'); // <Jun Kai/>
             themeNameInput.focus();
             return;
         }
@@ -2086,18 +2428,16 @@ async function saveCurrentTheme() {
         );
         
         if (nameExists) {
-            const confirm = window.confirm(
-                `A theme named "${themeName}" already exists. Do you want to save anyway?`
-            );
-            
-            if (!confirm) return;
+            // <Jun Kai/> the kit dialog instead of the browser box
+            const saveAnyway = await uiConfirm({ title: `There is already a theme called ${themeName}`, message: 'Save this one with the same name as well?', confirmText: 'Save anyway' });
+            if (!saveAnyway) return;
         }
         
         // Capture current theme data
         const themeData = captureCurrentThemeData();
         
         if (!themeData) {
-            alert('Failed to capture current theme data');
+            themeSay('The current colours could not be read. Reload the page and try again.', 'error'); // <Jun Kai/>
             return;
         }
         
@@ -2129,17 +2469,24 @@ async function saveCurrentTheme() {
         }
         
         console.log('✅ Theme saved successfully:', data);
-        alert(`✅ Theme "${themeName}" saved successfully!`);
-        
-        // Clear form
-        clearSaveThemeForm();
+        // <Jun Kai start>
+        if (isActive) {
+            applyThemeData(themeData); // stores and applies the colours the theme was made from
+            themeMarkUnsaved(false);
+            renderSectionList();
+            renderThemeControls(currentSection);
+            updatePreview(currentSection);
+        }
+        themeSay(`The theme "${themeName}" is saved${isActive ? ' and in use' : ''}.`, 'ok');
+        closeSaveThemeForm();
+        // <Jun Kai end>
         
         // Reload saved themes
         await loadSavedThemes();
         
     } catch (error) {
         console.error('❌ Error saving theme:', error);
-        alert('❌ Failed to save theme: ' + error.message);
+        themeSay('The theme was not saved: ' + error.message, 'error'); // <Jun Kai/>
     }
 }
 
@@ -2195,6 +2542,7 @@ function applyThemeData(themeData) {
             const colorPicker = document.getElementById(colorPickerId);
             const hexInput = document.getElementById(hexInputId);
             
+            appliedCount++; // <Jun Kai/> a colour was applied to themeSettings above, with or without the old text boxes
             if (colorPicker && hexInput) {
                 // Extract 6-digit hex for color picker (it doesn't support alpha)
                 const sixDigitHex = colorValue.length === 9 ? colorValue.substring(0, 7) : colorValue;
@@ -2202,7 +2550,6 @@ function applyThemeData(themeData) {
                 // Set both inputs
                 colorPicker.value = sixDigitHex;
                 hexInput.value = colorValue.toUpperCase();
-                appliedCount++;
                 
                 console.log(`    ✓ ${colorKey} = ${colorValue}`);
             }
@@ -2252,6 +2599,9 @@ async function activateSavedTheme(themeId) {
             return;
         }
         
+        // <Jun Kai start> Apply replaces the overall colours and saves them, so unsaved changes would be lost
+        if (themeUnsaved && !(await uiConfirm({ title: `Apply ${theme.theme_name}?`, message: 'You have colour changes that are not saved. They are lost when another theme is applied.', confirmText: 'Apply anyway', danger: true }))) return;
+        // <Jun Kai end>
         // Step 1: Show user what's about to happen
         console.log('🔄 Activating theme:', theme.theme_name);
         showNotification(`Applying "${theme.theme_name}"...`, 'info');
@@ -2279,6 +2629,13 @@ async function activateSavedTheme(themeId) {
         
         // Step 4: Reload saved themes UI to show new active state
         await loadSavedThemes();
+        // <Jun Kai start>
+        themeMarkUnsaved(false);
+        renderSectionList();
+        renderThemeControls(currentSection);
+        updatePreview(currentSection);
+        themeSay(`"${theme.theme_name}" is in use now.`, 'ok');
+        // <Jun Kai end>
         
         // Step 5: Success
         console.log('✅ Theme activation complete!');
@@ -2300,67 +2657,31 @@ async function renameSavedTheme(themeId) {
             return;
         }
         
-        // Create rename modal
-        const modal = createRenameModal(theme);
-        document.body.appendChild(modal);
-        
-        // Focus input
-        const input = modal.querySelector('#rename-theme-input');
+        // <Jun Kai start> the name on the card becomes a box with Save and Cancel
+        updateSavedThemesUI(); // closes another rename that was open
+        const card = document.querySelector(`#saved-themes-list .theme-saved-card[data-theme-id="${Number(themeId)}"]`);
+        const foot = card && card.querySelector('.theme-saved-foot');
+        if (!foot) return;
+        foot.innerHTML = `
+            <form class="theme-rename-form" novalidate>
+                <label class="ui-sr-only" for="rename-theme-input">New name for the theme</label>
+                <input type="text" id="rename-theme-input" class="ui-input" maxlength="100" autocomplete="off">
+                <button type="submit" class="ui-btn ui-btn-primary">Save</button>
+                <button type="button" class="ui-btn ui-btn-secondary" data-rename="cancel">Cancel</button>
+            </form>`;
+        const input = foot.querySelector('#rename-theme-input');
+        input.value = theme.theme_name;
+        foot.querySelector('form').addEventListener('submit', (event) => { event.preventDefault(); performRename(theme.id); });
+        foot.querySelector('[data-rename="cancel"]').addEventListener('click', () => updateSavedThemesUI());
+        input.addEventListener('keydown', (event) => { if (event.key === 'Escape') updateSavedThemesUI(); });
         input.focus();
         input.select();
-        
+        // <Jun Kai end>
+
     } catch (error) {
         console.error('❌ Error renaming theme:', error);
         showNotification('Failed to rename theme: ' + error.message, 'error');
     }
-}
-
-// Create rename modal
-function createRenameModal(theme) {
-    const modal = document.createElement('div');
-    modal.className = 'rename-theme-modal';
-    modal.innerHTML = `
-        <div class="rename-theme-content">
-            <h3>✏️ Rename Theme</h3>
-            <p>Enter a new name for "${escapeHtml(theme.theme_name)}"</p>
-            
-            <div class="form-group">
-                <label for="rename-theme-input">New Theme Name *</label>
-                <input 
-                    type="text" 
-                    id="rename-theme-input" 
-                    value="${escapeHtml(theme.theme_name)}"
-                    maxlength="100"
-                />
-            </div>
-            
-            <div class="rename-theme-actions">
-                <button class="btn btn-secondary" onclick="closeRenameModal()">
-                    Cancel
-                </button>
-                <button class="btn btn-primary" onclick="performRename(${theme.id})">
-                    ✏️ Rename
-                </button>
-            </div>
-        </div>
-    `;
-    
-    // Close on background click
-    modal.addEventListener('click', (e) => {
-        if (e.target === modal) {
-            closeRenameModal();
-        }
-    });
-    
-    // Handle Enter key
-    const input = modal.querySelector('#rename-theme-input');
-    input.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-            performRename(theme.id);
-        }
-    });
-    
-    return modal;
 }
 
 // Perform the rename operation
@@ -2436,14 +2757,15 @@ async function deleteSavedTheme(themeId) {
             return;
         }
         
-        const confirm = await showConfirmDialog(
-            'Delete Theme',
-            `Are you sure you want to delete "${theme.theme_name}"? This action cannot be undone.`,
+        // <Jun Kai/> a clearer question; showConfirmDialog is the kit dialog now
+        const sure = await showConfirmDialog(
+            `Delete ${theme.theme_name}?`,
+            'The theme leaves your saved themes. It cannot be undone.',
             'Delete',
             'danger'
         );
-        
-        if (!confirm) return;
+
+        if (!sure) return;
         
         console.log('🗑️ Deleting theme:', theme.theme_name);
         
@@ -2577,9 +2899,7 @@ function initSavedThemesSection() {
 }
 
 // Show confirmation dialog
+// <Jun Kai/> the kit dialog (uiKit.js) instead of the browser box; same answer: a Promise of true or false
 function showConfirmDialog(title, message, confirmText = 'Confirm', type = 'primary') {
-    return new Promise((resolve) => {
-        const confirmed = confirm(`${title}\n\n${message}`);
-        resolve(confirmed);
-    });
+    return uiConfirm({ title, message, confirmText, danger: type === 'danger' });
 }

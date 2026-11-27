@@ -24,6 +24,7 @@ const SCHEMA_FILE = path.join(__dirname, 'schema.sql');
 const SNAPSHOT_FILE = path.join(__dirname, 'schema.snapshot.sql');
 const cfg = {
   host: process.env.DB_HOST || 'localhost',
+  port: Number(process.env.DB_PORT) || 3306, // <Jun Kai/> the kiosk's own MySQL (install.cmd) runs on another port
   user: process.env.DB_USER || 'kiosk_user',
   password: process.env.DB_PASSWORD || 'kiosk123',
   database: process.env.DB_NAME || 'dp_kiosk_db',
@@ -111,7 +112,7 @@ async function adminConnection() {
   const candidates = [process.env.MYSQL_ROOT_USER, 'root', 'runner', 'ODBC'].filter(Boolean);
   let lastError;
   for (const user of candidates) {
-    try { return await mysql.createConnection({ host: cfg.host, user, password: process.env.MYSQL_ROOT_PASSWORD || '', multipleStatements: true }); }
+    try { return await mysql.createConnection({ host: cfg.host, port: cfg.port, user, password: process.env.MYSQL_ROOT_PASSWORD || '', multipleStatements: true }); }
     catch (e) { lastError = e; }
   }
   throw new Error(`check needs an admin login (set MYSQL_ROOT_USER / MYSQL_ROOT_PASSWORD): ${lastError && lastError.message}`);

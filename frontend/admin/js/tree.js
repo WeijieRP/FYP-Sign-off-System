@@ -6,6 +6,9 @@
 async function loadDigitalTreeData() {
     try {
         console.log('🌳 Loading digital tree data...');
+        setTreeLeavesStatus('', ''); // <Jun Kai/> an old answer (Make VIP, a failed load) goes on every load
+        loadTreePreview(); // <Jun Kai/> the small copy of the tree screen on Tree Leaves
+        showTreeVipCard(); // <Jun Kai/> the VIP card, for a System Admin only
         await loadTreeStageSelection();
         await loadAvailableTreeBackgrounds();
         const response = await fetch('/api/tree');
@@ -22,7 +25,13 @@ async function loadDigitalTreeData() {
     } catch (error) {
         console.error('Error loading tree data:', error);
         updateDigitalTreeTable([]);
-        alert('Error loading tree data: ' + error.message);
+        // <Jun Kai start> no alert box: a status line on Tree Leaves, and a notice when the load came from another page
+        // (Refresh Data on Tree Settings), where that status line cannot be seen
+        setTreeLeavesStatus('down', 'The tree could not be loaded: ' + error.message);
+        if (!document.getElementById('digital-tree-page')?.classList.contains('active') && typeof showNotification === 'function') {
+            showNotification('The tree could not be loaded: ' + error.message, 'error');
+        }
+        // <Jun Kai end>
     }
 }
 
@@ -78,7 +87,13 @@ async function saveTreeParameters() {
         const showTitleBox = document.getElementById('param-showTitleBox').checked;
         const leafScaleSlider = document.getElementById('param-leafDisplayScale');
         const leafDisplayScale = leafScaleSlider ? parseFloat(leafScaleSlider.value) : 1.0;
+        // The VIP leaves' own scale (VIP Leaf Adjustments), 0.4 to 2; without the slider, the saved one stays.
+        const vipLeafScaleSlider = document.getElementById('param-vipLeafDisplayScale');
+        const vipLeafDisplayScale = vipLeafScaleSlider
+            ? Math.min(2, Math.max(0.4, parseFloat(vipLeafScaleSlider.value) || 1))
+            : undefined;
         const treeDisplayMode = document.getElementById('param-treeDisplayMode')?.value === '3d' ? '3d' : '2d';
+        const treeStyle = chosenTreeStyle();
 
         // Get thresholds
         const thresholds = {
@@ -103,9 +118,14 @@ async function saveTreeParameters() {
 
         const payload = {
             treeStage,
+            // Auto: the tree grows by itself with the leaf count (backend/features/parameters/treeStage.js).
+            treeStageMode: mode === 'manual' ? 'manual' : 'auto',
             showTitleBox,
             leafDisplayScale,
+            vipLeafDisplayScale,
             treeDisplayMode,
+            treeStyle,                    // the 2D tree's pictures: painted, natural or digital
+            screenSize: readScreenSizeFields('param'), // the 2D tree's screen shape
             leafThresholds: thresholds,   // save thresholds for later
             treeTitleBox: collectTreeTitleSettings()  // collect title box settings if needed
         };
@@ -121,6 +141,11 @@ async function saveTreeParameters() {
 
         setStatus('Tree parameters saved.', 'success');
         showNotification('Tree display, leaf scale, and thresholds saved.', 'success');
+        // A captured style with stages not captured yet: those stages show the painted tree until captured.
+        if (treeStyle !== 'painted') {
+            const missing = (await treeStyleCaptures(treeStyle)).filter(capture => !capture.meta).map(capture => capture.stage);
+            if (missing.length) showNotification(`Stage ${missing.join(', ')} has no ${treeStyle} picture yet and shows the painted tree. Press "Capture from the 3D tree".`, 'warning');
+        }
 
         // Refresh the auto stage preview
         updateAutoStagePreview();
@@ -130,6 +155,246 @@ async function saveTreeParameters() {
         showNotification(error.message || 'Failed to save tree parameters.', 'error');
     }
 }
+
+// ---------- Screen size, for the 2D tree (2D Tree Display) and the 3D tree (3D Scene Controls) ----------
+// Auto fits the tree to the screen; a preset or a custom width and height draws it in that shape (for a display fed
+// a picture of another shape, as an LED wall's controller often is). The server checks it and fills in a preset's
+// size: backend/features/parameters/screenSize.js (the same presets). Fields: <prefix>-screenPreset, -screenWidth,
+// -screenHeight; prefix 'param' (2D) or 'tree3d' (3D).
+const SCREEN_SIZE_PRESETS = [
+    ['auto', 'Auto: fit the screen', null, null],
+    ['led-wall-7x2', 'ESG Centre LED wall, 7 m × 2 m (7:2)', 7, 2],
+    ['hd-16x9', 'Standard screen, 16:9 (1920 × 1080)', 1920, 1080],
+    ['ultrawide-21x9', 'Ultra-wide screen, 21:9', 21, 9],
+    ['super-ultrawide-32x9', 'Super ultra-wide screen, 32:9', 32, 9],
+    ['classic-4x3', 'Classic screen, 4:3', 4, 3],
+    ['upright-9x16', 'Upright screen, 9:16 (1080 × 1920)', 1080, 1920],
+    ['custom', 'Custom width and height', null, null]
+];
+
+function screenSizeField(prefix, name) {
+    return document.getElementById(`${prefix}-${name}`);
+}
+
+function fillScreenSizeOptions() {
+    document.querySelectorAll('select[data-screen-size]').forEach(select => {
+        if (select.options.length) return;
+        SCREEN_SIZE_PRESETS.forEach(([value, label]) => select.add(new Option(label, value)));
+    });
+}
+
+// Shows the width and height for Custom, and the shape chosen (e.g. "Shape 3.50 : 1, wider than 16:9").
+function updateScreenSizeFields(prefix) {
+    fillScreenSizeOptions();
+    const select = screenSizeField(prefix, 'screenPreset');
+    if (!select) return;
+    const custom = select.value === 'custom';
+    const customRow = screenSizeField(prefix, 'screenCustom');
+    if (customRow) customRow.hidden = !custom;
+    const note = screenSizeField(prefix, 'screenShape');
+    if (!note) return;
+    const preset = SCREEN_SIZE_PRESETS.find(([value]) => value === select.value);
+    const width = custom ? Number(screenSizeField(prefix, 'screenWidth')?.value) : preset?.[2];
+    const height = custom ? Number(screenSizeField(prefix, 'screenHeight')?.value) : preset?.[3];
+    if (select.value === 'auto') note.textContent = 'The tree fills whatever screen it is shown on.';
+    else if (!(width > 0 && height > 0)) note.textContent = 'Enter the screen\'s width and height (any unit).';
+    else {
+        const ratio = width / height;
+        const compare = ratio > 1.8 ? 'wider than 16:9' : ratio < 1.75 ? (ratio < 1 ? 'taller than wide' : 'narrower than 16:9') : 'the same as 16:9';
+        note.textContent = `Shape ${ratio >= 1 ? `${ratio.toFixed(2)} : 1` : `1 : ${(1 / ratio).toFixed(2)}`}, ${compare}.`;
+    }
+}
+
+function setScreenSizeFields(prefix, value) {
+    fillScreenSizeOptions();
+    const select = screenSizeField(prefix, 'screenPreset');
+    if (!select) return;
+    const preset = SCREEN_SIZE_PRESETS.some(([key]) => key === value?.preset) ? value.preset : 'auto';
+    select.value = preset;
+    if (preset === 'custom') {
+        screenSizeField(prefix, 'screenWidth').value = value.width ?? '';
+        screenSizeField(prefix, 'screenHeight').value = value.height ?? '';
+    }
+    updateScreenSizeFields(prefix);
+}
+
+// The fields as the server takes them; undefined without the fields (an older page).
+function readScreenSizeFields(prefix) {
+    const select = screenSizeField(prefix, 'screenPreset');
+    if (!select || !select.value) return undefined;
+    if (select.value !== 'custom') return { preset: select.value };
+    return {
+        preset: 'custom',
+        width: Number(screenSizeField(prefix, 'screenWidth').value),
+        height: Number(screenSizeField(prefix, 'screenHeight').value)
+    };
+}
+
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => { updateScreenSizeFields('param'); updateScreenSizeFields('tree3d'); });
+else { updateScreenSizeFields('param'); updateScreenSizeFields('tree3d'); }
+
+// ---------- The 2D tree's picture style (checklist item 12) ----------
+// Painted shows the original stage pictures; Natural and Digital show pictures of the 3D tree at each stage
+// (assets/Tree/2d-from-3d/<style>/), so the 2D and 3D screens match. "Capture from the 3D tree" opens the 3D
+// page in capture mode in a small frame, once for each style and stage, and saves each picture through
+// POST /api/admin/parameters/tree-style-capture (backend/features/parameters/tree2dStyle.js); the 3D page draws
+// the picture itself (frontend/3dTree/capture-2d.js). scripts/tree/capture-2d-from-3d.js does the same.
+const TREE_STYLE_STAGES = [0, 1, 2, 3, 4];
+const TREE_STYLE_LOOKS = { natural: 'natural', digital: 'glow' };
+const TREE_STYLE_NAMES = { natural: 'Natural', digital: 'Digital' };
+const TREE_STYLE_READY_MS = 120000;
+let treeStyleCaptureRun = null; // the capture in progress: { stopped }
+
+function chosenTreeStyle() {
+    const value = document.getElementById('param-treeStyle')?.value;
+    return ['natural', 'digital'].includes(value) ? value : 'painted';
+}
+
+// Each stage's saved picture description (stage<N>.json), or meta: null where none has been captured.
+async function treeStyleCaptures(style) {
+    return Promise.all(TREE_STYLE_STAGES.map(async stage => {
+        const base = `/assets/Tree/2d-from-3d/${style}/stage${stage}`;
+        try {
+            const response = await fetch(`${base}.json`, { cache: 'no-store' });
+            return { stage, base, meta: response.ok ? await response.json() : null };
+        } catch {
+            return { stage, base, meta: null };
+        }
+    }));
+}
+
+// The chosen style's pictures, stage by stage, with when each was captured.
+async function loadTreeStylePreviews() {
+    const box = document.getElementById('tree-style-previews');
+    if (!box) return;
+    const style = chosenTreeStyle();
+    const figure = (src, caption, alt) => {
+        const item = document.createElement('figure');
+        item.className = 'tree-style-preview';
+        if (src) {
+            const img = document.createElement('img');
+            img.src = src;
+            img.alt = alt;
+            img.loading = 'lazy';
+            item.appendChild(img);
+        } else {
+            const missing = document.createElement('div');
+            missing.className = 'tree-style-missing';
+            missing.textContent = 'Not captured yet';
+            item.appendChild(missing);
+        }
+        const text = document.createElement('figcaption');
+        text.textContent = caption;
+        item.appendChild(text);
+        return item;
+    };
+    if (style === 'painted') {
+        // The painted tree is two pictures, as on /tree: its canopy (stage<N>leaves.png, none at stage 0) under
+        // its trunk and branches (stage<N>.png), on the default background.
+        box.replaceChildren(...TREE_STYLE_STAGES.map(stage => {
+            const item = figure(null, `Stage ${stage}`, '');
+            const picture = document.createElement('div');
+            picture.className = 'tree-style-painted';
+            picture.setAttribute('role', 'img');
+            picture.setAttribute('aria-label', `Painted tree, stage ${stage}`);
+            const layers = stage > 0 ? [`/assets/Tree/stage${stage}leaves.png`, `/assets/Tree/stage${stage}.png`] : ['/assets/Tree/stage0.png'];
+            layers.forEach(src => {
+                const img = document.createElement('img');
+                img.src = src;
+                img.alt = '';
+                picture.appendChild(img);
+            });
+            item.replaceChild(picture, item.firstChild);
+            return item;
+        }));
+        return;
+    }
+    const captures = await treeStyleCaptures(style);
+    if (chosenTreeStyle() !== style) return; // changed again meanwhile
+    box.replaceChildren(...captures.map(({ stage, base, meta }) => {
+        if (!meta) return figure(null, `Stage ${stage}`, '');
+        const when = meta.capturedAt ? new Date(meta.capturedAt).toLocaleString() : '';
+        return figure(`${base}.jpg?v=${encodeURIComponent(meta.capturedAt || '')}`, `Stage ${stage}${when ? ` · ${when}` : ''}`, `${TREE_STYLE_NAMES[style]} tree, stage ${stage}`);
+    }));
+}
+
+function setTreeStyleStatus(text, isError = false) {
+    const status = document.getElementById('tree-style-status');
+    if (!status) return;
+    status.textContent = text;
+    status.classList.toggle('error', isError);
+}
+
+// Opens the 3D page in capture mode in the frame and waits until it is ready to be captured.
+function openTreeCapturePage(frame, style, stage, run) {
+    return new Promise((resolve, reject) => {
+        const started = Date.now();
+        const check = () => {
+            if (run.stopped) return reject(new Error('Capture stopped.'));
+            let ready = false;
+            try { ready = frame.contentWindow?.tree2dCaptureReady === true; } catch { /* still loading */ }
+            if (ready) return resolve(frame.contentWindow);
+            if (Date.now() - started > TREE_STYLE_READY_MS) return reject(new Error(`The 3D tree (${TREE_STYLE_NAMES[style]}, stage ${stage}) did not finish loading.`));
+            setTimeout(check, 500);
+        };
+        frame.src = `/3dTree/3dTree.html?capture2d=1&look=${TREE_STYLE_LOOKS[style]}&stage=${stage}&growth=1&orbit=off`;
+        setTimeout(check, 1000);
+    });
+}
+
+async function captureTreeStylesFrom3d() {
+    if (treeStyleCaptureRun) return;
+    const modal = document.getElementById('tree-style-capture-modal');
+    const frame = document.getElementById('tree-style-capture-frame');
+    const progress = document.getElementById('tree-style-capture-progress');
+    const button = document.getElementById('tree-style-capture');
+    if (!modal || !frame || !progress) return;
+    const run = { stopped: false };
+    treeStyleCaptureRun = run;
+    if (button) button.disabled = true;
+    modal.classList.add('open');
+    setTreeStyleStatus('Capturing…');
+    const jobs = Object.keys(TREE_STYLE_LOOKS).flatMap(style => TREE_STYLE_STAGES.map(stage => ({ style, stage })));
+    let saved = 0;
+    try {
+        for (const [index, { style, stage }] of jobs.entries()) {
+            progress.textContent = `${TREE_STYLE_NAMES[style]}, stage ${stage} (${index + 1} of ${jobs.length}): loading the 3D tree…`;
+            const page = await openTreeCapturePage(frame, style, stage, run);
+            progress.textContent = `${TREE_STYLE_NAMES[style]}, stage ${stage} (${index + 1} of ${jobs.length}): saving the picture…`;
+            const capture = await page.tree2dCapture();
+            const response = await fetch('/api/admin/parameters/tree-style-capture', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ style, stage, ...capture })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || !data.success) throw new Error(data.error || `The picture could not be saved (HTTP ${response.status}).`);
+            saved += 1;
+        }
+        setTreeStyleStatus(`Captured all ${saved} pictures, ${new Date().toLocaleString()}.`);
+        showNotification('The 2D tree pictures were captured from the 3D tree.', 'success');
+    } catch (error) {
+        const message = run.stopped ? `Stopped after ${saved} of ${jobs.length} pictures.` : (error.message || 'The capture failed.');
+        setTreeStyleStatus(message, !run.stopped);
+        if (!run.stopped) showNotification(message, 'error');
+    } finally {
+        frame.removeAttribute('src');
+        frame.src = 'about:blank';
+        modal.classList.remove('open');
+        if (button) button.disabled = false;
+        treeStyleCaptureRun = null;
+        loadTreeStylePreviews();
+    }
+}
+
+function cancelTreeStyleCapture() {
+    if (treeStyleCaptureRun) treeStyleCaptureRun.stopped = true;
+}
+
+// The previews show from the start (the saved style is set again when the settings load, js/parameters.js).
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => loadTreeStylePreviews());
+else loadTreeStylePreviews();
 
 let treeStageModeInitialized = false;
 function initTreeStageMode() {
@@ -311,8 +576,17 @@ async function loadTreeStageSelection() {
             const input = document.getElementById('threshold-' + key);
             if (input && savedThresholds[key] !== undefined && savedThresholds[key] !== null) input.value = savedThresholds[key];
         });
+        // The saved Auto/Manual choice (Auto: the tree grows by itself with the leaf count).
+        const savedMode = treeParameters.treeStageMode === 'auto' ? 'auto' : 'manual';
+        const modeRadio = document.querySelector(`input[name="stageMode"][value="${savedMode}"]`);
+        if (modeRadio && !modeRadio.checked) {
+            modeRadio.checked = true;
+            modeRadio.dispatchEvent(new Event('change'));
+        }
         if (stageStatus) {
-            stageStatus.textContent = `Current: stage ${normalizedStage}. Shown on /tree after apply.`;
+            stageStatus.textContent = savedMode === 'auto'
+                ? 'Auto: the tree grows by itself as leaves are added.'
+                : `Current: stage ${normalizedStage}. Shown on /tree after apply.`;
         }
     } catch (error) {
         console.error('Error loading tree stage selection:', error);
@@ -359,6 +633,9 @@ async function saveTreeStageSelection() {
 }
 
 
+// The 2D tree's own background when none is chosen (frontend/tree/tree.css body background).
+const DEFAULT_TREE_BACKGROUND = '/assets/Tree/background/2dTreeBackground.jpeg';
+
 async function loadAvailableTreeBackgrounds() {
     try {
         const response = await fetch('/api/admin/parameters/tree-background/list', {
@@ -382,9 +659,12 @@ async function loadAvailableTreeBackgrounds() {
             throw new Error(errorMsg);
         }
 
+        // With no background chosen, the 2D tree shows its default (DEFAULT_TREE_BACKGROUND, from tree.css):
+        // the preview shows it and its tile is marked, so the admin sees what the tree shows.
         const currentTreeBackground = data.currentTreeBackground || '';
-        if (preview && currentTreeBackground) {
-            preview.style.backgroundImage = `url('${currentTreeBackground}')`;
+        const shownTreeBackground = currentTreeBackground || DEFAULT_TREE_BACKGROUND;
+        if (preview) {
+            preview.style.backgroundImage = `url('${shownTreeBackground}')`;
         }
 
         const backgrounds = Array.isArray(data.backgroundImages) ? data.backgroundImages : [];
@@ -408,7 +688,8 @@ async function loadAvailableTreeBackgrounds() {
             thumb.style.cssText = `width:100%;height:84px;border-radius:6px;background:url('${background.path}') center/cover no-repeat;border:1px solid #e2e8f0;`;
 
             const label = document.createElement('span');
-            label.textContent = background.name;
+            const isDefaultBackground = DEFAULT_TREE_BACKGROUND.endsWith('/' + background.filename);
+            label.textContent = isDefaultBackground ? `${background.name} (default)` : background.name;
             label.style.cssText = 'font-size:12px;color:#1f2937;word-break:break-word;';
 
             tile.appendChild(thumb);
@@ -437,14 +718,16 @@ async function loadAvailableTreeBackgrounds() {
                 console.log('🎯 Selected background:', background.filename);
             };
 
-            if (currentTreeBackground && currentTreeBackground.endsWith('/' + background.filename)) {
+            if (shownTreeBackground.endsWith('/' + background.filename)) {
                 tile.dataset.selected = 'true';
                 tile.style.borderColor = '#2563eb';
                 tile.style.background = '#eff6ff';
                 tile.style.boxShadow = '0 0 0 2px rgba(37,99,235,0.12)';
                 window.selectedTreeBackground = background.filename;
                 if (status) {
-                    status.textContent = `Current: ${background.name}.`;
+                    status.textContent = currentTreeBackground
+                        ? `Current: ${background.name}.`
+                        : `Current: ${background.name}, the default background.`;
                 }
             }
 
@@ -558,59 +841,210 @@ async function uploadTreeBackground() {
     }
 }
 
-// Update the digital tree table
-function updateDigitalTreeTable(treeData) {
-    const tbody = document.querySelector('#digital-tree-page table tbody');
-    if (!tbody) {
-        console.error('Digital tree table tbody not found');
-        return;
-    }
-    
-    tbody.innerHTML = '';
-    
-    // Update current year display
-    const currentYear = new Date().getFullYear();
-    const currentYearSpan = document.getElementById('current-year');
-    const treeCountSpan = document.getElementById('tree-count');
-    
-    if (currentYearSpan) {
-        currentYearSpan.textContent = currentYear;
-    }
-    
-    if (!treeData || treeData.length === 0) {
-        if (treeCountSpan) {
-            treeCountSpan.textContent = '0';
-        }
-        tbody.innerHTML = `
-            <tr>
-                <td colspan="3" style="text-align: center; padding: 40px; color: #64748b;">
-                    <div style="font-size: 48px; margin-bottom: 16px;">🌳</div>
-                    <h3 style="color: #64748b; margin-bottom: 10px;">No Tree Data Found</h3>
-                    <p>No visitors have been recorded for ${currentYear} yet.</p>
-                </td>
-            </tr>
-        `;
-        return;
-    }
-    
-    // Update tree count
-    if (treeCountSpan) {
-        treeCountSpan.textContent = treeData.length;
-    }
-    
-    // Add each visitor to the table
-    treeData.forEach(visitor => {
-        const row = document.createElement('tr');
-        
-        row.innerHTML = `
-            <td>${visitor.name || 'Anonymous'}</td>
-            <td>${visitor.visit_count || 1}</td>
-            <td>${visitor.last_visit ? new Date(visitor.last_visit).toLocaleDateString() : 'N/A'}</td>
-        `;
-        
-        tbody.appendChild(row);
+// <Jun Kai start> Tree Leaves (admin redesign, Digital Tree B). /api/tree answers one row per leaf, so a visitor who came
+// twice has two rows. The search and the pages work on that answer in the browser; the numbers on the left come
+// from it too. Newest leaves first.
+let treeVisitorRows = [];
+let treeVisitorPage = 1;
+let treeLeavesReady = false;
+let treeScrollToVips = false;
+const TREE_VISITORS_PER_PAGE = 10;
+const TREE_AVATAR_HUES = [262, 172, 330, 28, 245, 152, 18, 218];
+
+function prepareTreeLeavesPage() {
+    if (treeLeavesReady) return;
+    treeLeavesReady = true;
+    document.querySelectorAll('#digital-tree-page [data-fb-icon]').forEach((slot) => {
+        slot.innerHTML = uiIcon(slot.dataset.fbIcon, slot.closest('button, a') ? 15 : 16);
     });
+    const tbody = document.querySelector('#digital-tree-page table tbody');
+    if (tbody) tbody.addEventListener('click', treeListClick);
 }
+
+// Make VIP on a row: the name exactly as the tree has it (vips.js makeVip)
+function treeListClick(event) {
+    const button = event.target.closest('[data-make-vip]');
+    const row = button && treeVisitorRows[Number(button.dataset.makeVip)];
+    if (row && typeof makeVip === 'function') makeVip(String(row.name || '').trim(), button);
+}
+
+function showTreeVipCard() {
+    const card = document.getElementById('dt-vip-card');
+    if (!card) return;
+    const admin = typeof canManageVips === 'function' && canManageVips();
+    card.hidden = !admin;
+    if (admin) loadVipData();
+}
+
+// the VIPs link and old showPage('vip') calls: once the list has its rows the card is scrolled into view again,
+// because on a narrow screen the list above it grows
+function scrollTreeLeavesToVips() {
+    const card = document.getElementById('dt-vip-card');
+    if (!card || card.hidden) return;
+    treeScrollToVips = true;
+    card.scrollIntoView({ block: 'start' });
+}
+
+// a VIP was added or removed: the rows with that name change at once, without loading the tree again
+function markTreeVip(name, isVip) {
+    const target = String(name || '').trim().toLowerCase();
+    treeVisitorRows.forEach((row) => {
+        if (row.hasPublicName && !row.archived && String(row.name || '').trim().toLowerCase() === target) row.isVip = isVip;
+    });
+    const golden = document.getElementById('dt-vip-leaves');
+    if (golden) golden.textContent = treeVisitorRows.filter((row) => row.isVip).length;
+    if (!isVip) setTreeLeavesStatus('', ''); // a "now a VIP" line would be wrong after a removal
+    renderTreeVisitors();
+}
+
+function setTreeLeavesStatus(tone, message) {
+    const el = document.getElementById('dt-status');
+    if (el) el.innerHTML = message ? uiPill(tone, message) : '';
+}
+
+function treeInitials(name) {
+    const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return '?';
+    return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+}
+
+function treeLeafDate(value) {
+    const date = value ? new Date(value) : null;
+    if (!date || Number.isNaN(date.getTime())) return '-';
+    return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function treeVisitorRowHtml(row, index) {
+    const name = String(row.name || 'Anonymous visitor');
+    const named = Boolean(row.hasPublicName) && !row.archived;
+    const hue = TREE_AVATAR_HUES[Math.abs(Number(row.id) || 0) % TREE_AVATAR_HUES.length];
+    let tag = '';
+    if (row.isVip) tag = '<span class="ui-tag is-amber">VIP</span>';
+    else if (row.archived) tag = '<span class="ui-tag">Archived</span>';
+    else if (!named) tag = '<span class="ui-tag">Name hidden</span>';
+    else if (typeof canManageVips === 'function' && canManageVips()) tag = `<button type="button" class="ui-link" data-make-vip="${index}">Make VIP</button>`;
+    const avatar = named
+        ? `<span class="ui-avatar" style="--ui-hue: ${hue}" aria-hidden="true">${escapeHtmlSafe(treeInitials(name))}</span>`
+        : '<span class="ui-avatar dt-avatar-none" aria-hidden="true">?</span>';
+    return `<tr><td><span class="ui-who">${avatar}<span class="ui-who-text"><b title="${escapeHtmlSafe(name)}">${escapeHtmlSafe(name)}</b></span></span></td>`
+        + `<td class="dt-num">${Number(row.visit_count) || 1}</td><td>${escapeHtmlSafe(treeLeafDate(row.created_at))}</td><td class="dt-tag-col">${tag}</td></tr>`;
+}
+
+function renderTreeVisitors() {
+    const tbody = document.querySelector('#digital-tree-page table tbody');
+    if (!tbody) return;
+    const query = (document.getElementById('dt-search')?.value || '').trim().toLowerCase();
+    const list = treeVisitorRows.map((row, index) => ({ row, index })).filter(({ row }) => !query || String(row.name || '').toLowerCase().includes(query));
+    const pages = Math.max(1, Math.ceil(list.length / TREE_VISITORS_PER_PAGE));
+    treeVisitorPage = Math.min(Math.max(1, treeVisitorPage), pages);
+    const first = (treeVisitorPage - 1) * TREE_VISITORS_PER_PAGE;
+    const shown = list.slice(first, first + TREE_VISITORS_PER_PAGE);
+
+    if (shown.length) {
+        tbody.innerHTML = shown.map(({ row, index }) => treeVisitorRowHtml(row, index)).join('');
+    } else {
+        const year = new Date().getFullYear();
+        const text = treeVisitorRows.length ? 'No visitor matches the search.' : `No visitors on the ${year} tree yet.`;
+        tbody.innerHTML = `<tr><td colspan="4" class="ui-empty dt-empty">${text}</td></tr>`;
+    }
+    const info = document.getElementById('dt-page-info');
+    if (info) info.textContent = list.length ? `Showing ${first + 1} to ${first + shown.length} of ${list.length}` : 'No visitors';
+    const prev = document.getElementById('dt-prev');
+    const next = document.getElementById('dt-next');
+    if (prev) prev.disabled = treeVisitorPage <= 1;
+    if (next) next.disabled = treeVisitorPage >= pages;
+}
+
+function filterTreeVisitors() {
+    treeVisitorPage = 1;
+    renderTreeVisitors();
+}
+
+function changeTreeVisitorPage(step) {
+    treeVisitorPage += step;
+    renderTreeVisitors();
+}
+
+// Update the digital tree table (the list and the numbers beside it)
+function updateDigitalTreeTable(treeData) {
+    prepareTreeLeavesPage();
+    const rows = Array.isArray(treeData) ? treeData : [];
+    const yearSpan = document.getElementById('current-year');
+    if (yearSpan) yearSpan.textContent = new Date().getFullYear();
+    const setCount = (id, n) => { const el = document.getElementById(id); if (el) el.textContent = n; };
+    setCount('tree-count', rows.length);
+    setCount('dt-vip-leaves', rows.filter((row) => row.isVip).length);
+    setCount('dt-hidden-names', rows.filter((row) => !row.hasPublicName && !row.archived).length);
+
+    treeVisitorRows = rows.slice().sort((a, b) => (new Date(b.created_at).getTime() || 0) - (new Date(a.created_at).getTime() || 0));
+    treeVisitorPage = 1;
+    renderTreeVisitors();
+    if (treeScrollToVips) {
+        treeScrollToVips = false;
+        const card = document.getElementById('dt-vip-card');
+        if (card && !card.hidden) card.scrollIntoView({ block: 'start' });
+    }
+}
+
+// The small copy of the tree screen: the real /tree (or /3dtree in 3D mode) page in a frame, drawn at 1600 x 900 and
+// scaled down to the card. It can only be looked at (no clicks), and it is emptied when another page opens, so a
+// 3D tree does not keep running in the background.
+const TREE_FRAME_WIDTH = 1600;
+let treeFrameWatch = null;
+
+function fitTreeFrame() {
+    const screen = document.getElementById('dt-screen');
+    const frame = document.getElementById('dt-tree-frame');
+    if (screen && frame) frame.style.transform = `scale(${screen.clientWidth / TREE_FRAME_WIDTH})`;
+}
+
+function watchTreeFrame() {
+    if (treeFrameWatch) return;
+    const page = document.getElementById('digital-tree-page');
+    const screen = document.getElementById('dt-screen');
+    if (!page || !screen) return;
+    treeFrameWatch = new MutationObserver(() => {
+        if (page.classList.contains('active')) return;
+        const frame = document.getElementById('dt-tree-frame');
+        if (frame && frame.getAttribute('src') !== 'about:blank') frame.setAttribute('src', 'about:blank');
+        screen.dataset.state = 'idle';
+    });
+    treeFrameWatch.observe(page, { attributes: true, attributeFilter: ['class'] });
+    if (typeof ResizeObserver === 'function') new ResizeObserver(fitTreeFrame).observe(screen);
+    window.addEventListener('resize', fitTreeFrame);
+}
+
+async function loadTreePreview() {
+    const frame = document.getElementById('dt-tree-frame');
+    const screen = document.getElementById('dt-screen');
+    const note = document.getElementById('dt-screen-note');
+    if (!frame || !screen) return;
+    watchTreeFrame();
+    let mode = '2d';
+    try {
+        const response = await fetch('/api/admin/parameters/treeParameters', { credentials: 'include' });
+        const data = await response.json();
+        if (response.ok && data.success && String(data.parameters?.treeDisplayMode || '').toLowerCase() === '3d') mode = '3d';
+    } catch (error) {
+        console.warn('Tree display mode not read, showing the 2D tree:', error);
+    }
+    const address = mode === '3d' ? '/3dtree' : '/tree';
+    const open = document.getElementById('dt-open-tree');
+    if (open) open.setAttribute('href', address);
+    const label = document.getElementById('dt-preview-mode');
+    if (label) label.textContent = mode === '3d' ? 'A small copy of the 3D tree screen' : 'A small copy of the tree screen';
+    if (!document.getElementById('digital-tree-page')?.classList.contains('active')) return;
+    screen.dataset.state = 'loading';
+    if (note) note.textContent = 'Loading the tree';
+    frame.onload = () => {
+        if (frame.getAttribute('src') === 'about:blank') return;
+        screen.dataset.state = 'ready';
+        fitTreeFrame();
+    };
+    frame.setAttribute('src', address);
+    fitTreeFrame();
+}
+// <Jun Kai end>
 
 // Leaf image management for digital tree parameters
 async function uploadParameterLeaf() {
@@ -795,9 +1229,19 @@ async function loadAvailableLeafImages(currentLeafImagePath = '') {
         } else {
             picker.innerHTML = '<div style="grid-column:1 / -1;padding:16px;text-align:center;color:#64748b;">No existing leaf images found.</div>';
         }
+        hideRevertIfPictureGone('revert-leaf-btn', window.previousLeafImagePath, data.leafImages || []);
     } catch (error) {
         console.error('Error loading available leaf images:', error);
     }
+}
+
+// Revert goes back to the previous leaf picture: hidden when that picture has since been deleted from its folder
+// (it is not in the list), as reverting to it would leave the 2D tree's leaves without a picture.
+function hideRevertIfPictureGone(buttonId, previousPath, pictures) {
+    const button = document.getElementById(buttonId);
+    if (!button || !previousPath) return;
+    const fileName = String(previousPath).split('/').pop();
+    if (!pictures.some(picture => picture.filename === fileName)) button.style.display = 'none';
 }
 
 async function loadAvailableVipLeafImages(currentVipLeafImagePath = '') {
@@ -882,6 +1326,7 @@ async function loadAvailableVipLeafImages(currentVipLeafImagePath = '') {
                 { filename: 'GoldRightLeaf.png', path: '/assets/Tree/vip-leaf/GoldRightLeaf.png', name: 'GoldRightLeaf' }
             ]);
         }
+        hideRevertIfPictureGone('revert-vip-leaf-btn', window.previousVipLeafImagePath, data.vipLeafImages || []);
     } catch (error) {
         console.error('Error loading available VIP leaf images:', error);
     }
@@ -962,7 +1407,7 @@ async function refreshTreeData() {
 // Default values for tree title box settings
 const TITLE_DEFAULTS = {
     showTitleBox: true,
-    titleText: '🌳 ESG Digital Tree',
+    titleText: '🌳 RP Xperience Centre Digital Tree',
     subtitleText: 'Growing with every visitor\'s contribution this year',
     opacity: 0.25,
     blur: 6,
@@ -1027,9 +1472,11 @@ async function loadTreeTitleSettings() {
     // treeDisplayMode is saved on treeParameters itself; reading it from the title box reset the select to 2D
     const displayModeSelect = document.getElementById('param-treeDisplayMode');
     if (displayModeSelect) displayModeSelect.value = (tree.treeDisplayMode || settings?.treeDisplayMode) === '3d' ? '3d' : '2d';
+    // Show the settings of the tree that is live (admin/js/tree3d.js).
+    if (displayModeSelect && typeof showTreeSettingsForMode === 'function') showTreeSettingsForMode(displayModeSelect.value);
     if (settings) {
         document.getElementById('param-showTitleBox').checked = settings.showTitleBox ?? true;
-        document.getElementById('param-titleText').value = settings.titleText || '🌳 ESG Digital Tree';
+        document.getElementById('param-titleText').value = settings.titleText || '🌳 RP Xperience Centre Digital Tree';
         document.getElementById('param-subtitleText').value = settings.subtitleText || 'Growing with every visitor\'s contribution this year';
         document.getElementById('param-titleOpacity').value = settings.opacity ?? 0.25;
         document.getElementById('param-titleOpacityValue').textContent = settings.opacity ?? 0.25;

@@ -1,0 +1,10 @@
+{
+  "feedback": { "enabled": true, "keep": { "amount": 12, "unit": "months" } },
+  "lostFound": { "enabled": true, "keep": { "amount": 12, "unit": "months" }, "onlyResolved": false },
+  "includePhotos": true,
+  "deleteAfterArchive": true,
+  "leaves": "keep",
+  "automatic": { "enabled": false, "frequency": "monthly", "dayOfMonth": 1, "weekday": 1, "everyDays": 30, "time": "", "enabledAt": null },
+  "folder": "",
+  "keepFiles": { "amount": 0, "unit": "years" }
+}

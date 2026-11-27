@@ -128,6 +128,8 @@ function filterFeedbackData() {
                 item.name || '',
                 String(item.visits || ''),
                 item.pledge || '',
+                // <Jun Kai/> the answers too: typed feedback and the labels of chosen options
+                (Array.isArray(item.question_answers) ? item.question_answers.map((a) => `${(a && a.answer_value) || ''} ${(a && a.option_label) || ''}`).join(' ') : ''),
                 item.date ? new Date(item.date).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' }) : ''
             ].join(' ').toLowerCase();
             
@@ -203,28 +205,31 @@ function filterFeedbackData() {
     renderFeedbackPage();
 }
 
-// Update feedback count displays
- 
-function updateFeedbackCounts(total, filtered, activeFilters) {
-    const elements = {
-        'feedback-filtered-count': filtered,
-        'feedback-total-count': total,
-        'feedback-results-count': filtered,
-        'feedback-total-records': total,
-        'feedback-active-filters-count': activeFilters
-    };
-    
-    Object.entries(elements).forEach(([id, value]) => {
-        const el = document.getElementById(id);
-        if (el) el.textContent = value;
-    });
-    
-    // Show/hide results info bar
-    const infoBar = document.getElementById('feedback-results-info-bar');
-    if (infoBar) {
-        infoBar.style.display = activeFilters > 0 ? 'block' : 'none';
-    }
-}
+// <Jun Kai start>
+// The Feedback page since the admin redesign (Feedback A). The rows, the pager and the side panel are drawn by
+// submissionList.js, which the Archived Feedback page uses too; this file keeps loading, filtering and sorting.
+const feedbackView = makeSubmissionList({
+    key: 'feedback', name: 'feedbackView', pageId: 'feedback-data-page', columns: 8, perPage: feedbackItemsPerPage,
+    all: () => allFeedbackData, setAll: (rows) => { allFeedbackData = rows; },
+    list: () => filteredFeedbackData, setList: (rows) => { filteredFeedbackData = rows; },
+    page: () => feedbackCurrentPage, setPage: (number) => { feedbackCurrentPage = number; },
+    decrypted: () => decryptedEmailMap,
+    resetDecrypted: () => { decryptedEmailMap = {}; isAnyEmailDecrypted = false; },
+    markDecrypted: (id, email) => { decryptedEmailMap[id] = email; isAnyEmailDecrypted = true; },
+    setEncryptedIds: (ids) => { encryptedFeedbackIds = ids; },
+    updateButtons: () => updateEncryptionButtons(),
+    remove: (id) => deleteFeedback(id),
+    refilter: () => filterFeedbackData(),
+    clearFilters: 'clearAllFeedbackFilters()',
+    emptyText: 'No feedback yet. A submission shows here as soon as a visitor sends one.',
+    filteredText: 'No submission matches these filters.',
+});
+function updateFeedbackCounts(total, filtered, activeFilters) { feedbackView.showFilterState(activeFilters); }
+function clearFeedbackDateRange() { feedbackView.clearDates(); }
+function renderFeedbackPage() { feedbackView.render(); }
+function updateFeedbackPaginationControls(totalItems, totalPages) { feedbackView.pager(totalItems, totalPages); }
+function feedbackDeleted(feedbackId) { feedbackView.deleted(feedbackId); } // called by feedbackDeletion.js after a delete
+// <Jun Kai end>
 
 // Show the user's typed feedback directly in the admin feedback table. (DONE BY CAEDEN)
 function getFeedbackAnswerPreview(feedback) {
@@ -248,177 +253,10 @@ function getFeedbackAnswerPreview(feedback) {
     return preview.length > 120 ? `${preview.slice(0, 117)}...` : preview;
 }
 
-// Render current page of feedback (25 records)
-function renderFeedbackPage() {
-    const tbody = document.getElementById('feedback-table-body');
-    if (!tbody) return;
-    
-    tbody.innerHTML = '';
-    
-    // Get current user role
-    const userRole = sessionStorage.getItem('userRole');
-    
-    // Calculate pagination
-    const totalPages = Math.ceil(filteredFeedbackData.length / feedbackItemsPerPage);
-    const startIndex = (feedbackCurrentPage - 1) * feedbackItemsPerPage;
-    const endIndex = startIndex + feedbackItemsPerPage;
-    const pageData = filteredFeedbackData.slice(startIndex, endIndex);
-    
-    // Collect encrypted IDs from current page ONLY
-    encryptedFeedbackIds = [];
-    pageData.forEach(item => {
-        if (item.email_encrypted && 
-            item.email_encrypted.trim() !== '' && 
-            item.email_encrypted.toLowerCase() !== 'no email provided') {
-            encryptedFeedbackIds.push(item.id);
-        }
-    });
-    
-    // Show no data message
-    if (filteredFeedbackData.length === 0) {
-        tbody.innerHTML = `
-            <tr>
-                <td colspan="11" style="text-align: center; padding: 40px; color: #64748b;">
-                    ${allFeedbackData.length === 0 
-                        ? 'No feedback data available.'
-                        : 'No results match your filters. Try adjusting your search criteria.'}
-                </td>
-            </tr>
-        `;
-        updateFeedbackPaginationControls(0, 0);
-        updateEncryptionButtons();
-        return;
-    }
-    
-    // Render each row with proper styling
-    pageData.forEach(feedback => {
-        const row = tbody.insertRow();
-        row.setAttribute('data-feedback-id', feedback.id);
-        row.setAttribute('data-retention', feedback.data_retention || 'longterm');
-        
-        // Name
-        row.insertCell(0).textContent = feedback.name || 'Anonymous';
-        
-        // Email - WITH ICONS AND COLORS
-        const emailCell = row.insertCell(1);
-        emailCell.className = 'email-cell';
-        
-        if (decryptedEmailMap[feedback.id]) {
-            // Decrypted - GREEN with unlock icon
-            emailCell.innerHTML = `<span class="text-success font-weight-600">🔓 ${decryptedEmailMap[feedback.id]}</span>`;
-        } else if (feedback.email_encrypted && 
-                   feedback.email_encrypted.trim() !== '' && 
-                   feedback.email_encrypted.toLowerCase() !== 'no email provided') {
-            // Encrypted - GRAY with lock icon
-            emailCell.innerHTML = `<span class="text-muted">🔒 [Encrypted]</span>`;
-        } else {
-            // No email - LIGHT GRAY
-            emailCell.innerHTML = `<span class="text-light-gray">No email provided</span>`;
-        }
-        
-        // Visits
-        row.insertCell(2).textContent = feedback.visits || 1;
-        
-        // Pledge
-        const pledgeCell = row.insertCell(3);
-        if (feedback.pledge && feedback.pledge.trim() !== '') {
-            pledgeCell.innerHTML = `<button class="btn-view" onclick="viewPledge(${feedback.id})">View</button>`;
-        } else {
-            pledgeCell.innerHTML = '<span class="text-muted font-size-12">No pledge</span>';
-        }
-
-        // User Feedback preview
-        const feedbackPreviewCell = row.insertCell(4);
-        const feedbackPreview = getFeedbackAnswerPreview(feedback);
-        if (feedbackPreview) {
-            feedbackPreviewCell.innerHTML = `<span title="${escapeHtml(feedbackPreview)}" style="display: block; max-width: 260px; white-space: normal; line-height: 1.35;">${escapeHtml(feedbackPreview)}</span>`;
-        } else {
-            feedbackPreviewCell.innerHTML = '<span class="text-muted font-size-12">No typed feedback</span>';
-        }
-        
-        // Questions & Answers
-        const qaCell = row.insertCell(5);
-        if (feedback.question_answers && feedback.question_answers.length > 0) {
-            qaCell.innerHTML = `<button class="btn-view" onclick="viewQuestionAnswers(${feedback.id})">View</button>`;
-        } else {
-            qaCell.innerHTML = '<span class="text-muted font-size-12">No answers</span>';
-        }
-        
-        // Data Retention WITH BADGES
-        const retentionCell = row.insertCell(6);
-        const retention = feedback.data_retention || 'longterm';
-        if (retention === '7days' || retention === '7day') {
-            retentionCell.innerHTML = '<span class="badge badge-warning">7 DAYS</span>';
-        } else {
-            retentionCell.innerHTML = '<span class="badge badge-permanent">LONG-TERM</span>';
-        }
-        
-        // Raw Photo
-        const rawPhotoCell = row.insertCell(7);
-        if (feedback.photo_path) {
-            rawPhotoCell.innerHTML = `<button class="btn-view" onclick="viewRawPhoto(${feedback.id})">View</button>`;
-        } else {
-            rawPhotoCell.innerHTML = '<span class="text-muted font-size-12">No raw photo</span>';
-        }
-        
-        // Processed Photo
-        const processedPhotoCell = row.insertCell(8);
-        if (feedback.processed_photo_path) {
-            processedPhotoCell.innerHTML = `<button class="btn-view" onclick="viewProcessedPhoto(${feedback.id})">View</button>`;
-        } else {
-            processedPhotoCell.innerHTML = '<span class="text-muted font-size-12">No processed photo</span>';
-        }
-        
-        // Date
-        row.insertCell(9).textContent = new Date(feedback.date).toLocaleString('en-SG', {
-            timeZone: 'Asia/Singapore',
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-        });
-        
-        // Actions
-        const actionsCell = row.insertCell(10);
-        
-        // IT_staff: View only, cannot delete
-        if (userRole === 'IT_staff') {
-            actionsCell.innerHTML = `<span class="text-muted font-size-12">View only</span>`;
-        } 
-        // IT_admin and system_admin: Can delete
-        else if (userRole === 'IT_admin' || userRole === 'system_admin') {
-            actionsCell.innerHTML = `<button class="btn-delete" onclick="deleteFeedback(${feedback.id})">🗑️ Delete</button>`;
-        }
-        // Default fallback
-        else {
-            actionsCell.innerHTML = `<span class="text-muted font-size-12">-</span>`;
-        }
-    });
-    
-    updateFeedbackPaginationControls(filteredFeedbackData.length, totalPages);
-    updateEncryptionButtons();
-}
-
-// Update pagination controls
-function updateFeedbackPaginationControls(totalItems, totalPages) {
-    const prevBtn = document.getElementById('prev-feedback-btn');
-    const nextBtn = document.getElementById('next-feedback-btn');
-    const pageInfo = document.getElementById('feedback-page-info');
-    
-    if (prevBtn) prevBtn.disabled = feedbackCurrentPage <= 1;
-    if (nextBtn) nextBtn.disabled = feedbackCurrentPage >= totalPages || totalPages === 0;
-    
-    if (pageInfo) {
-        pageInfo.textContent = totalPages > 0 
-            ? `Page ${feedbackCurrentPage} of ${totalPages} (${totalItems} total)`
-            : 'Page 1 of 0 (0 total)';
-    }
-}
-
 // Navigate to previous page
 function prevFeedbackPage() {
     if (feedbackCurrentPage > 1) {
+        feedbackView.close(false); // <Jun Kai/> the open submission is not on the next page
         feedbackCurrentPage--;
         decryptedEmailMap = {}; // Reset decryption
         isAnyEmailDecrypted = false;
@@ -430,6 +268,7 @@ function prevFeedbackPage() {
 function nextFeedbackPage() {
     const totalPages = Math.ceil(filteredFeedbackData.length / feedbackItemsPerPage);
     if (feedbackCurrentPage < totalPages) {
+        feedbackView.close(false); // <Jun Kai/> the open submission is not on the next page
         feedbackCurrentPage++;
         decryptedEmailMap = {}; // Reset decryption
         isAnyEmailDecrypted = false;

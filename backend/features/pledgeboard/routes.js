@@ -26,9 +26,11 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../../core/db');
+const auth = require('../../core/auth'); // <Jun Kai/> the sign-in check of the /admin routes below
 const fs = require('fs');
 const path = require('path');
 const paths = require('../../core/paths');
+const { forLog } = require('../../core/log'); // <Jun Kai/> request values are printed without line breaks
 const { detectPledgeSentimentRule } = require('../feedback/pledgeSentiment');
 
 const pledgeTopicsPath = paths.dataFile('pledge-topics.json');
@@ -171,7 +173,7 @@ router.post('/like/:feedbackId', (req, res) => {
         });
     }
     
-    console.log(`👍 Like request for feedback ${feedbackId} from user ${userIdentifier}`);
+    console.log(`👍 Like request for feedback ${forLog(feedbackId)} from user ${forLog(userIdentifier)}`); // <Jun Kai/>
     
     // Check if user already liked this pledge
     const checkQuery = 'SELECT id FROM pledge_likes WHERE feedback_id = ? AND user_identifier = ?';
@@ -244,7 +246,7 @@ router.delete('/unlike/:feedbackId', (req, res) => {
         });
     }
     
-    console.log(`👎 Unlike request for feedback ${feedbackId} from user ${userIdentifier}`);
+    console.log(`👎 Unlike request for feedback ${forLog(feedbackId)} from user ${forLog(userIdentifier)}`); // <Jun Kai/>
     
     // Delete the like from database
     const deleteQuery = 'DELETE FROM pledge_likes WHERE feedback_id = ? AND user_identifier = ?';
@@ -324,10 +326,10 @@ router.get('/check-like/:feedbackId', (req, res) => {
 // ==================== 5. ADMIN: GET PLEDGEBOARD WITH SORTING ====================
 // Admin endpoint to get pledges with sorting options.
 // Used in admin panel for viewing and managing pledgeboard.
-router.get('/admin/pledges', (req, res) => {
+router.get('/admin/pledges', auth.requireAuth, (req, res) => { // <Jun Kai/> signed-in admins only
     const { sortBy, status = 'all' } = req.query; // 'most_liked' or 'least_liked'
     
-    console.log(`🏆 Admin fetching pledgeboard data (sort: ${sortBy || 'most_liked'})...`);
+    console.log(`🏆 Admin fetching pledgeboard data (sort: ${forLog(sortBy || 'most_liked')})...`); // <Jun Kai/>
 
     
     // Determine sort order based on query parameter
@@ -377,9 +379,10 @@ router.get('/admin/pledges', (req, res) => {
 });
 
 // Update pledge moderation status from the admin pledgeboard queue. (DONE BY XY)
-router.put('/admin/pledges/:feedbackId/status', (req, res) => {
+router.put('/admin/pledges/:feedbackId/status', auth.requireAuth, (req, res) => { // <Jun Kai/> signed-in admins only
     const { feedbackId } = req.params;
-    const { status, username = 'admin' } = req.body;
+    const { status } = req.body;
+    const username = req.session.user.username; // <Jun Kai/> "moderated by" is the signed-in admin, not a name the browser sends
     const allowedStatuses = ['pending', 'approved', 'rejected'];
 
     if (!allowedStatuses.includes(status)) {
@@ -418,11 +421,11 @@ router.get('/topics', (req, res) => {
 });
 
 // Admin topic list and save endpoint so staff can edit pledge topics without code changes.
-router.get('/admin/topics', (req, res) => {
+router.get('/admin/topics', auth.requireAuth, (req, res) => { // <Jun Kai/> signed-in admins only
     res.json({ success: true, topics: readPledgeTopics() });
 });
 
-router.put('/admin/topics', (req, res) => {
+router.put('/admin/topics', auth.requireAuth, (req, res) => { // <Jun Kai/> signed-in admins only
     const topics = sanitizePledgeTopics(req.body.topics);
     if (topics.length === 0) {
         return res.status(400).json({ success: false, error: 'At least one pledge topic is required' });

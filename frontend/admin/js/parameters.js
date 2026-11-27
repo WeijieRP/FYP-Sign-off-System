@@ -19,23 +19,234 @@ const DEFAULT_LANDING_LAYOUT_SETTINGS = {
     pledgeboardButtonHeight: 64
 };
 
-function switchParameterTab(tabId) {
-    document.querySelectorAll('#parameter-adjustment-page .param-tab').forEach(tab => {
-        tab.classList.toggle('active', tab.getAttribute('onclick')?.includes(tabId));
-    });
+// <Jun Kai start>
+// The page is grouped by kiosk screen now. Each old tab opens the step that holds most of its settings.
+const PARAMETER_TAB_STEPS = {
+    'feedback-tab': 'thanks',
+    'landing-layout-tab': 'start',
+    'content-tab': 'pledge',
+    'email-tab': 'email',
+    'features-tab': 'photo',
+    'validation-tab': 'details',
+    'photo-tab': 'photo',
+    'assets-tab': 'look',
+    'archive-tab': 'archive'
+};
 
-    document.querySelectorAll('#parameter-adjustment-page .parameter-section').forEach(section => {
-        section.classList.toggle('active', section.id === tabId);
+// shows one step (or one "Behind the scenes" group); jump scrolls to it, for the buttons below the steps
+function showParameterStep(step, jump = false) {
+    const page = document.getElementById('parameter-adjustment-page');
+    const target = page?.querySelector(`[data-pa-group="${step}"]`);
+    if (!target) return;
+    page.querySelectorAll('[data-pa-group]').forEach((group) => { group.hidden = group !== target; });
+    page.querySelectorAll('button[data-pa-step]').forEach((button) => {
+        const on = button.dataset.paStep === step;
+        button.classList.toggle('is-active', on);
+        if (on) button.setAttribute('aria-current', 'step');
+        else button.removeAttribute('aria-current');
+    });
+    page.dataset.paCurrent = step;
+    updateParameterPreview();
+    if (jump) target.scrollIntoView({ block: 'start' });
+}
+
+function switchParameterTab(tabId) {
+    showParameterStep(PARAMETER_TAB_STEPS[tabId] || 'start');
+}
+
+// Unsaved changes: the values right after a load or a save are kept, and every edit is compared with them, so the
+// save bar can say how many settings changed and in which steps, and those steps get a small dot.
+let parameterSnapshot = new Map();
+
+function parameterControls() {
+    return [...document.querySelectorAll('#parameter-adjustment-page [data-pa-group] :is(input, select, textarea)')]
+        .filter((control) => control.type !== 'file');
+}
+
+function parameterControlKey(control) {
+    return control.id || `${control.name}:${control.value}`;
+}
+
+function parameterControlValue(control) {
+    return control.type === 'checkbox' || control.type === 'radio' ? control.checked : control.value;
+}
+
+function takeParameterSnapshot() {
+    parameterSnapshot = new Map(parameterControls().map((control) => [parameterControlKey(control), parameterControlValue(control)]));
+    updateParameterChanges();
+}
+
+function updateParameterChanges() {
+    const page = document.getElementById('parameter-adjustment-page');
+    const text = document.getElementById('pa-changes');
+    if (!page || !text) return;
+    const changed = new Map();
+    parameterControls().forEach((control) => {
+        const key = parameterControlKey(control);
+        if (!parameterSnapshot.has(key) || parameterSnapshot.get(key) === parameterControlValue(control)) return;
+        if (control.type === 'radio' && !control.checked) return; // a radio pair counts once
+        const group = control.closest('[data-pa-group]');
+        changed.set(group, (changed.get(group) || 0) + 1);
+    });
+    page.querySelectorAll('button[data-pa-step]').forEach((button) => {
+        const has = [...changed.keys()].some((group) => group.dataset.paGroup === button.dataset.paStep);
+        button.classList.toggle('has-changes', has);
+        const flag = button.querySelector('.pa-step-flag');
+        if (flag) flag.hidden = !has;
+    });
+    const count = [...changed.values()].reduce((sum, n) => sum + n, 0);
+    const wasEmpty = text.hidden;
+    text.hidden = count === 0;
+    if (!count) return;
+    // groups in page order, so the steps read the way a visitor meets them
+    const names = [...page.querySelectorAll('[data-pa-group]')].filter((group) => changed.has(group)).map((group) => group.dataset.paName);
+    const where = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0];
+    text.textContent = `${count} ${count === 1 ? 'change' : 'changes'} not saved yet, in ${where}`;
+    // the first edit after a load or save makes the old "loaded" or "saved" message out of date
+    if (wasEmpty) {
+        const status = document.getElementById('parameter-status');
+        if (status) status.innerHTML = '';
+    }
+}
+
+function bindParameterChanges() {
+    const page = document.getElementById('parameter-adjustment-page');
+    if (!page || page.dataset.changesBound) return;
+    page.addEventListener('input', updateParameterChanges);
+    page.addEventListener('change', updateParameterChanges);
+    page.dataset.changesBound = 'true';
+}
+
+// Live preview: a sketch of the chosen kiosk screen, built from the values on the page, saved or not. It follows
+// the kiosk's own rules: the thank you screen shows the subtitle only when the message is empty, the pledge coach
+// title carries the campaign title while Smart campaign is on, the beauty filter needs both of its switches, and the
+// email uses the same default texts as backend/features/email/service.js when a box is empty.
+const PARAMETER_EMAIL_DEFAULTS = {
+    subject: 'Thank you for visiting RP Xperience Centre, {name}!',
+    intro: 'Thank you for taking the time to visit our RP Xperience Centre and sharing your feedback. Attached below is your commemorative photo from your visit.',
+    closing: 'We hope your experience has inspired you to take meaningful steps towards sustainability. Your feedback helps us improve and create better experiences for future visitors.',
+    sender: 'RP Xperience Centre Team',
+    footer: 'This is an automated email sent from the RP Xperience Centre kiosk system. Please do not reply to this message.'
+};
+
+function setPreviewText(preview, key, text) {
+    preview.querySelectorAll(`[data-pa-text="${key}"]`).forEach((el) => { el.textContent = text; });
+}
+
+function showPreviewPart(preview, key, on) {
+    preview.querySelectorAll(`[data-pa-show="${key}"]`).forEach((el) => { el.hidden = !on; });
+}
+
+function updateParameterPreview() {
+    const page = document.getElementById('parameter-adjustment-page');
+    const preview = document.getElementById('pa-preview');
+    if (!page || !preview) return;
+    const block = preview.querySelector(`[data-pa-preview="${page.dataset.paCurrent || 'start'}"]`);
+    preview.querySelectorAll('[data-pa-preview]').forEach((part) => { part.hidden = part !== block; });
+    preview.hidden = !block;
+    page.querySelector('.pa-work')?.classList.toggle('has-preview', Boolean(block));
+    if (!block) return;
+
+    // the look every feedback screen shares
+    preview.style.setProperty('--pa-accent', normalizeHexColor(getInputValue('param-feedbackAccentColor'), '#4a7c59'));
+    preview.style.setProperty('--pa-card-alpha', String(clampNumber(getInputValue('param-feedbackCardOpacity'), 0.55, 1, 0.9)));
+    const background = getInputValue('param-feedbackBackground');
+    // a custom property, so dark mode leaves the typed background as it is
+    preview.querySelectorAll('.pa-screen').forEach((screen) => {
+        if (background) screen.style.setProperty('--pa-screen-bg', background);
+        else screen.style.removeProperty('--pa-screen-bg');
+    });
+    showPreviewPart(preview, 'languages', getCheckedValue('flag-floatingLanguageSelectorEnabled'));
+
+    const nameMin = getInputValue('rule-nameMinLength') || '0';
+    const nameMax = getInputValue('rule-nameMaxLength') || '80';
+    setPreviewText(preview, 'details', getInputValue('param-detailsPrompt'));
+    setPreviewText(preview, 'name-need', getCheckedValue('rule-nameRequired') ? '(required)' : '(optional)');
+    setPreviewText(preview, 'name-rule', `${nameMin} to ${nameMax} letters`);
+    setPreviewText(preview, 'email-need', getCheckedValue('rule-emailRequired') ? '(required)' : '(optional)');
+
+    setPreviewText(preview, 'questions', getInputValue('param-feedbackPrompt'));
+    showPreviewPart(preview, 'questions-required', getCheckedValue('rule-requiredQuestionsEnabled'));
+
+    const campaignTitle = getInputValue('campaign-title');
+    // a missing switch counts as on, like the kiosk (flags.pledgeEnabled !== false)
+    const pledgeOn = document.getElementById('flag-pledgeEnabled')?.checked ?? true;
+    setPreviewText(preview, 'pledge', getInputValue('param-pledgePrompt'));
+    setPreviewText(preview, 'coach', getCheckedValue('campaign-enabled') && campaignTitle ? `${campaignTitle}: Smart Pledge Coach` : 'Smart Pledge Coach');
+    setPreviewText(preview, 'pledge-need', getCheckedValue('rule-pledgeRequired') ? '(required)' : '(optional)');
+    setPreviewText(preview, 'pledge-rule', `${getInputValue('rule-pledgeMinLength') || '0'} to ${getInputValue('rule-pledgeMaxLength') || '500'} characters`);
+    showPreviewPart(preview, 'pledge-topic', getCheckedValue('rule-pledgeTopicRequired'));
+    showPreviewPart(preview, 'pledge-off', !pledgeOn);
+    preview.querySelector('[data-pa-preview="pledge"] .pa-device')?.classList.toggle('is-off', !pledgeOn);
+
+    const camera = getCheckedValue('flag-cameraCaptureEnabled');
+    const upload = getCheckedValue('flag-photoUploadEnabled');
+    const beauty = getCheckedValue('flag-beautyFilterEnabled') && getRadioBoolean('beauty-filter');
+    const overlay = getInputValue('param-defaultOverlayTheme');
+    showPreviewPart(preview, 'camera', camera);
+    showPreviewPart(preview, 'upload', upload);
+    showPreviewPart(preview, 'photo-none', !camera && !upload);
+    showPreviewPart(preview, 'photo-skip', !getCheckedValue('rule-photoRequired'));
+    showPreviewPart(preview, 'beauty', beauty);
+    setPreviewText(preview, 'beauty', `Beauty filter: ${getInputValue('param-beautyFilterStrength') || 'medium'}`);
+    setPreviewText(preview, 'overlay', overlay ? `Overlay picked first: ${overlay}` : 'No overlay picked first');
+
+    const message = getInputValue('param-thankYouMessage');
+    const subtitle = getInputValue('param-thankYouSubtitle');
+    setPreviewText(preview, 'thanks-title', getInputValue('param-thankYouTitle'));
+    setPreviewText(preview, 'thanks-message', message || subtitle);
+    setPreviewText(preview, 'thanks-footer', getInputValue('param-thankYouFooter'));
+    showPreviewPart(preview, 'thanks-subtitle', !message && Boolean(subtitle));
+    showPreviewPart(preview, 'social', getCheckedValue('flag-socialSharingEnabled'));
+
+    const name = 'Alex';
+    const personal = (value, fallback) => (value || fallback).replace(/\{name\}/g, name);
+    const mailOn = getCheckedValue('flag-thankYouEmailEnabled');
+    setPreviewText(preview, 'mail-subject', personal(getInputValue('param-thankYouSubject'), PARAMETER_EMAIL_DEFAULTS.subject));
+    setPreviewText(preview, 'mail-from', personal(getInputValue('param-senderName'), PARAMETER_EMAIL_DEFAULTS.sender));
+    setPreviewText(preview, 'mail-greeting', `Dear ${name},`);
+    setPreviewText(preview, 'mail-intro', personal(getInputValue('param-thankYouIntro'), PARAMETER_EMAIL_DEFAULTS.intro));
+    setPreviewText(preview, 'mail-closing', personal(getInputValue('param-thankYouClosing'), PARAMETER_EMAIL_DEFAULTS.closing));
+    setPreviewText(preview, 'mail-footer', personal(getInputValue('param-footerNote'), PARAMETER_EMAIL_DEFAULTS.footer));
+    showPreviewPart(preview, 'mail-badge', getCheckedValue('flag-badgeEmailEnabled'));
+    showPreviewPart(preview, 'mail-off', !mailOn);
+    showPreviewPart(preview, 'mail-on', mailOn);
+    preview.querySelector('[data-pa-preview="email"] .pa-device')?.classList.toggle('is-off', !mailOn);
+}
+
+// The start screen preview is drawn 600 px wide (its sizes are the kiosk's at 0.45) and shrunk to fit the card
+function fitLandingPreview() {
+    const box = document.querySelector('#pa-preview .landing-layout-preview');
+    if (box && box.clientWidth) box.style.setProperty('--pa-landing-scale', String(Math.min(1, box.clientWidth / 600)));
+}
+
+function bindParameterPreview() {
+    const page = document.getElementById('parameter-adjustment-page');
+    if (!page || page.dataset.previewBound) return;
+    page.addEventListener('input', updateParameterPreview);
+    page.addEventListener('change', updateParameterPreview);
+    const box = document.querySelector('#pa-preview .landing-layout-preview');
+    if (box && 'ResizeObserver' in window) new ResizeObserver(fitLandingPreview).observe(box);
+    page.dataset.previewBound = 'true';
+}
+// <Jun Kai end>
+
+// <Jun Kai start>
+// the page's icons are drawn once, the first time it opens
+function fillParameterIcons() {
+    document.querySelectorAll('#parameter-adjustment-page [data-fb-icon]').forEach((slot) => {
+        if (!slot.firstChild) slot.innerHTML = uiIcon(slot.dataset.fbIcon, slot.closest('button') ? 15 : 16);
     });
 }
 
+// the status sits in the save bar as a small coloured pill
 function setParameterStatus(message, type = 'info') {
     const status = document.getElementById('parameter-status');
     if (!status) return;
-    status.textContent = message;
-    status.className = `status-message status-message-${type}`;
-    status.style.display = 'block';
+    const tone = type === 'success' ? 'ok' : type === 'error' ? 'down' : 'info';
+    status.innerHTML = `<span class="ui-pill ui-pill-${tone}"><span class="ui-dot"></span>${escapeHtmlSafe(message)}</span>`;
 }
+// <Jun Kai end>
 
 function setInputValue(id, value) {
     const input = document.getElementById(id);
@@ -86,8 +297,12 @@ function megabytesToBytes(value, fallbackMb) {
     return Math.max(1, Number.isFinite(number) ? number : fallbackMb) * 1024 * 1024;
 }
 
+// An empty box gives the fallback (the default), not 0: an empty "Time at the Bottom Middle" used to save 0 and
+// make new leaves skip the bottom middle.
 function getNumberValue(id, fallback) {
-    const number = Number(getInputValue(id));
+    const raw = getInputValue(id);
+    if (raw === '') return fallback;
+    const number = Number(raw);
     return Number.isFinite(number) ? number : fallback;
 }
 
@@ -100,6 +315,10 @@ function clampNumber(value, min, max, fallback) {
 function getDefaultBadgeLeafColors() {
     return { ...DEFAULT_BADGE_LEAF_COLORS };
 }
+
+// The leaf colours under Badge Leaf Styling: every badge (as the badge emails), and Multiple pledges, for a
+// visitor who chose several pledge topics (a leaf colour only, no email of its own; Owner: Role 2, Wei Jie).
+const BADGE_LEAF_STYLE_BADGES = [...DEFAULT_BADGE_EMAIL_BADGES, { key: 'multi-pledge', name: 'Multiple pledges' }];
 
 function normalizeHexColor(value, fallback = '#4a7c59') {
     const color = String(value || '').trim();
@@ -134,9 +353,6 @@ function setSharedLeafScale(value) {
     const oldOutput = document.getElementById('param-leafDisplayScaleValue');
     if (oldOutput) oldOutput.textContent = String(normalized);
 
-    const oldOutputVip = document.getElementById('param-vipLeafDisplayScaleValue');
-    if (oldOutputVip) oldOutputVip.textContent = String(normalized);
-
     document.querySelectorAll('.badge-leaf-preview').forEach(preview => {
         preview.style.setProperty('--badge-preview-scale', normalized);
     });
@@ -149,7 +365,7 @@ function setSharedLeafScale(value) {
 
 function collectBadgeLeafStyleColors() {
     const defaults = getDefaultBadgeLeafColors();
-    return DEFAULT_BADGE_EMAIL_BADGES.reduce((colors, badge) => {
+    return BADGE_LEAF_STYLE_BADGES.reduce((colors, badge) => {
         colors[badge.key] = normalizeHexColor(getInputValue(getBadgeLeafColorInputId(badge.key)), defaults[badge.key]);
         return colors;
     }, {});
@@ -157,7 +373,7 @@ function collectBadgeLeafStyleColors() {
 
 function updateBadgeLeafPreviews() {
     const colors = collectBadgeLeafStyleColors();
-    DEFAULT_BADGE_EMAIL_BADGES.forEach((badge) => {
+    BADGE_LEAF_STYLE_BADGES.forEach((badge) => {
         const preview = document.querySelector(`[data-preview-badge-leaf="${badge.key}"]`);
         if (preview) {
             preview.style.setProperty('--badge-preview-color', colors[badge.key]);
@@ -206,7 +422,7 @@ function bindFeedbackAndLeafStyleControls() {
         }
     });
 
-    DEFAULT_BADGE_EMAIL_BADGES.forEach((badge) => {
+    BADGE_LEAF_STYLE_BADGES.forEach((badge) => {
         const input = document.getElementById(getBadgeLeafColorInputId(badge.key));
         if (input && !input.dataset.badgeLeafBound) {
             input.addEventListener('input', updateBadgeLeafPreviews);
@@ -292,6 +508,10 @@ function resetLandingLayoutPreview() {
     setInputValue('layout-pledgeboardButtonWidth', 600);
     setInputValue('layout-pledgeboardButtonHeight', 64);
     updateLandingLayoutPreview();
+    // <Jun Kai start>
+    updateParameterChanges();
+    updateParameterPreview();
+    // <Jun Kai end>
 }
 
 function bindLandingLayoutPreview() {
@@ -397,6 +617,8 @@ function populateParameterForm(config) {
     setInputValue('param-leafRefreshInterval', tree.leafRefreshInterval);
     setInputValue('param-leafOpacity', tree.leafOpacity);
     setInputValue('param-leafAnimationDuration', tree.leafAnimationDuration);
+    setInputValue('param-leafShowcaseSeconds', tree.leafShowcaseSeconds ?? 12);
+    setInputValue('tree3d-leafShowcaseSeconds', tree.leafShowcaseSeconds ?? 12); // the same setting in the 3D panel
     setInputValue('param-leafFallThreshold', tree.leafFallThreshold);
     setInputValue('param-leafFallDuration', tree.leafFallDuration);
     const normalizedTreeStage = Number.isInteger(Number(tree.treeStage))
@@ -408,6 +630,10 @@ function populateParameterForm(config) {
         treeStageStatus.textContent = `Current: stage ${normalizedTreeStage}. Shown on /tree after apply.`;
     }
     setInputValue('param-treeDisplayMode', tree.treeDisplayMode || '2d');
+    // The 2D tree's picture style (js/tree.js): painted, or captured from the 3D tree.
+    setInputValue('param-treeStyle', ['natural', 'digital'].includes(tree.treeStyle) ? tree.treeStyle : 'painted');
+    if (typeof setScreenSizeFields === 'function') setScreenSizeFields('param', tree.screenSize); // js/tree.js
+    if (typeof loadTreeStylePreviews === 'function') loadTreeStylePreviews();
     setCheckedValue('param-showTitleBox', tree.showTitleBox !== false);
     // Leaf display scale (new) - Done by Yu Kang
     const badgeLeafScale = Number(badgeLeafStyles.leafScale);
@@ -430,11 +656,16 @@ function populateParameterForm(config) {
         if (vipValEl) vipValEl.textContent = String(vipLeafScale);
     }
     setSharedLeafScale(leafScale);
-    setInputValue('param-tintDurationHours', badgeLeafStyles.tintDurationHours != null ? badgeLeafStyles.tintDurationHours : 24);
+    // "A leaf stays light for", in hours (24 when unset or 0, as the 2D tree takes it), shown in minutes when it
+    // is not a whole number of hours (so 1 minute shows as 1 minute).
+    const tintHours = Number(badgeLeafStyles.tintDurationHours) > 0 ? Number(badgeLeafStyles.tintDurationHours) : 24;
+    const tintInHours = Number.isInteger(tintHours);
+    setInputValue('param-tintDurationHours', tintInHours ? tintHours : Math.max(1, Math.round(tintHours * 60)));
+    setInputValue('param-tintDurationUnit', tintInHours ? 'hours' : 'minutes');
 
     const badgeLeafColors = getBadgeLeafStyleColors(badgeLeafStyles.colors);
     const defaultBadgeLeafColors = getDefaultBadgeLeafColors();
-    DEFAULT_BADGE_EMAIL_BADGES.forEach((badge) => {
+    BADGE_LEAF_STYLE_BADGES.forEach((badge) => {
         setInputValue(
             getBadgeLeafColorInputId(badge.key),
             normalizeHexColor(badgeLeafColors[badge.key], defaultBadgeLeafColors[badge.key])
@@ -482,7 +713,8 @@ function populateParameterForm(config) {
                 : `/assets/Tree/leaf/${assets.leafImage}`;
             previewBox.style.backgroundImage = `url('${leafPreviewPath}')`;
         } else {
-            previewBox.style.backgroundImage = '';
+            // None chosen: the 2D tree's own leaf pictures from /assets/Tree/leaf (New/Old Left/Right Leaf).
+            previewBox.style.backgroundImage = "url('/assets/Tree/leaf/NewLeftLeaf.png')";
         }
         // apply scale to preview
         previewBox.style.transform = `scale(${leafScale})`;
@@ -495,7 +727,8 @@ function populateParameterForm(config) {
                 : `/assets/Tree/vip-leaf/${assets.vipLeafImage}`;
             vipPreviewBox.style.backgroundImage = `url('${vipLeafPreviewPath}')`;
         } else {
-            vipPreviewBox.style.backgroundImage = '';
+            // None chosen: the 2D tree's own VIP leaf pictures from /assets/Tree/vip-leaf (Gold Left/Right Leaf).
+            vipPreviewBox.style.backgroundImage = "url('/assets/Tree/vip-leaf/GoldLeftLeaf.png')";
         }
         vipPreviewBox.style.transform = `scale(${vipLeafScale})`;
     }
@@ -508,6 +741,9 @@ function populateParameterForm(config) {
     if (revertVipBtn) {
         revertVipBtn.style.display = assets.previousVipLeafImage ? 'block' : 'none';
     }
+    // The pickers hide Revert again if that previous picture has since been deleted (loadAvailableLeafImages).
+    window.previousLeafImagePath = assets.previousLeafImage || '';
+    window.previousVipLeafImagePath = assets.previousVipLeafImage || '';
     // Load available leaf images from server - Done by Yu Kang
     window.currentLeafImagePath = assets.leafImage || '';
     loadAvailableLeafImages(window.currentLeafImagePath);
@@ -516,6 +752,10 @@ function populateParameterForm(config) {
     setCheckedValue('archive-autoArchiveEnabled', archive.autoArchiveEnabled);
     setInputValue('archive-archiveAfterDays', archive.archiveAfterDays || 90);
     setInputValue('archive-keepRecentFeedbackCount', archive.keepRecentFeedbackCount || 0);
+    // <Jun Kai start>
+    takeParameterSnapshot();
+    updateParameterPreview();
+    // <Jun Kai end>
 }
 
 function collectParameterForm() {
@@ -543,7 +783,7 @@ function collectParameterForm() {
         },
         campaignSettings: {
             enabled: getCheckedValue('campaign-enabled'),
-            title: getInputValue('campaign-title') || 'ESG Campaign',
+            title: getInputValue('campaign-title') || 'RP Xperience Centre Campaign',
             cadence: getInputValue('campaign-cadence') || 'weekly',
             treeSubtitle: getInputValue('campaign-treeSubtitle'),
             pulseGoal: Number(getInputValue('campaign-pulseGoal')) || 100,
@@ -596,12 +836,16 @@ function collectParameterForm() {
             leafRefreshInterval: getNumberValue('param-leafRefreshInterval', 30000),
             leafOpacity: getNumberValue('param-leafOpacity', 0.9),
             leafAnimationDuration: getNumberValue('param-leafAnimationDuration', 500),
+            // A new leaf's time at the bottom middle before it flies to the 2D tree (frontend/tree/tree.js).
+            leafShowcaseSeconds: Math.min(30, Math.max(0, getNumberValue('param-leafShowcaseSeconds', 12))),
             leafFallThreshold: getNumberValue('param-leafFallThreshold', 15),
             leafFallDuration: getNumberValue('param-leafFallDuration', 4200),
             treeStage: Math.max(0, Math.min(4, Number(getInputValue('param-treeStage')) || 0)),
             treeDisplayMode: getInputValue('param-treeDisplayMode') === '3d' ? '3d' : '2d',
+            treeStyle: ['natural', 'digital'].includes(getInputValue('param-treeStyle')) ? getInputValue('param-treeStyle') : 'painted',
+            screenSize: typeof readScreenSizeFields === 'function' ? readScreenSizeFields('param') : undefined,
             leafDisplayScale: sharedLeafScale,
-            vipLeafDisplayScale: parseFloat(getInputValue('param-vipLeafDisplayScale')) || 1.0,
+            vipLeafDisplayScale: clampNumber(getInputValue('param-vipLeafDisplayScale') || 1, 0.4, 2, 1), // VIP Leaf Adjustments
             showTitleBox: getCheckedValue('param-showTitleBox')
         },
         feedbackPageStyle: {
@@ -611,7 +855,9 @@ function collectParameterForm() {
         },
         badgeLeafStyles: {
             leafScale: sharedLeafScale,
-            tintDurationHours: clampNumber(getInputValue('param-tintDurationHours'), 0, 168, 24),
+            tintDurationHours: Math.round(clampNumber(
+                (Number(getInputValue('param-tintDurationHours')) || 24) / (getInputValue('param-tintDurationUnit') === 'minutes' ? 60 : 1),
+                0, 168, 24) * 1000) / 1000,
             colors: collectBadgeLeafStyleColors()
         },
         photoSettings: {
@@ -644,6 +890,11 @@ function collectParameterForm() {
 
 async function loadParameters() {
     try {
+        // <Jun Kai start>
+        fillParameterIcons();
+        bindParameterChanges();
+        bindParameterPreview();
+        // <Jun Kai end>
         setParameterStatus('Loading parameters...', 'info');
         loadParameterOverlayOptions();
         const response = await fetch('/api/admin/parameters', { credentials: 'include' });
@@ -768,7 +1019,7 @@ async function saveParameters() {
 
 // Run configured archive update from the admin panel (Done by Caeden)
 async function runConfiguredArchiveNow() {
-    if (!confirm('Run archive update now using the selected archive timing? Save changes first if you changed the timing.')) return;
+    if (!(await uiConfirm({ title: 'Run the archive update now?', message: 'It uses the archive timing saved on this page. Save your changes first if you changed the timing.', confirmText: 'Run now' }))) return; // <Jun Kai/> a kit window instead of the browser's box
 
     try {
         setParameterStatus('Running archive update...', 'info');

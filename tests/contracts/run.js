@@ -120,6 +120,9 @@ check('routes: every /api path the frontend calls is registered', () => {
     const consts = {};
     for (const m of text.matchAll(/(?:const|let|var)\s+([A-Z_][A-Z0-9_]*)\s*=\s*['"](\/api\/[^'"]*)['"]/g)) consts[m[1]] = m[2];
     for (const m of text.matchAll(/(\/api\/(?:[A-Za-z0-9_\-.\/:]|\$\{[^}]*\})*)/g)) {
+      // Part of a full URL to another site (e.g. https://api-open.data.gov.sg/v2/real-time/api/rainfall), not our /api.
+      const literalStart = Math.max(text.lastIndexOf("'", m.index), text.lastIndexOf('"', m.index), text.lastIndexOf('`', m.index));
+      if (text.slice(literalStart + 1, m.index).includes('://')) continue;
       let p = m[1].replace(/\$\{[^}]*\}/g, '__X__').replace(/[.:]+$/, '').replace(/\/+$/, '') || m[1];
       const key = p;
       if (!seen.has(key)) seen.set(key, []);
@@ -328,6 +331,44 @@ check('snapshot: the route table matches tests/contracts/routes.snapshot.txt', (
   const added = [...b].filter((l) => l && !a.has(l)), removed = [...a].filter((l) => l && !b.has(l));
   return [...added.map((l) => `added:   ${l}`), ...removed.map((l) => `removed: ${l}`), 'If this change is intended, run `npm run routes:update` and commit the snapshot in the same change.'];
 });
+
+// <Jun Kai start>
+// ---------------------------------------------------------------- 12. admin routes ask for a sign-in
+// 36 routes of the old admin router answered without a sign-in until 19 Nov 2026, and so did the admin routes of the
+// pledgeboard router. The check has to be the first thing after the path, so that nothing (a file upload, for one)
+// runs before it.
+const SIGN_IN_FILES = [
+  {
+    file: 'backend/features/admin/routes.js',
+    needs: () => true,
+    open: new Map([
+      ['POST /login', 'the sign-in itself'],
+      ['POST /logout-audit', 'has to work after the session ended, to end "keep me signed in" on that browser'],
+    ]),
+  },
+  // the same router is on the kiosk server too, where nobody signs in: its /admin routes are for the admin page only
+  { file: 'backend/features/pledgeboard/routes.js', needs: (route) => route.startsWith('/admin/'), open: new Map() },
+];
+check('sign-in: every admin route in backend/features/admin/routes.js and pledgeboard/routes.js starts with auth.requireAuth or auth.requireAdmin', () => {
+  const problems = [];
+  for (const { file, needs, open } of SIGN_IN_FILES) {
+    const text = read(file);
+    const seen = new Set();
+    for (const m of text.matchAll(/^router\.(get|post|put|delete|patch|all)\(\s*(['"`])([^'"`]+)\2\s*,\s*([\w.]*)/gm)) {
+      const name = `${m[1].toUpperCase()} ${m[3]}`;
+      seen.add(name);
+      if (!needs(m[3])) continue;
+      const guarded = m[4] === 'auth.requireAuth' || m[4] === 'auth.requireAdmin';
+      if (open.has(name)) { if (guarded) problems.push(`${file}:${lineOf(text, m.index)} ${name} has a sign-in check now: take it off the open list in tests/contracts/run.js`); continue; }
+      if (!guarded) problems.push(`${file}:${lineOf(text, m.index)} ${name} answers without a sign-in: put auth.requireAuth (any admin role) or auth.requireAuth, auth.requireAdmin (system admin) right after the path`);
+    }
+    const all = [...text.matchAll(/^router\.(get|post|put|delete|patch|all)\(/gm)].length;
+    if (all !== seen.size) problems.push(`${file}: ${all} routes but ${seen.size} could be read by this check (a route written in a new shape, or the same route twice)`);
+    for (const name of open.keys()) if (!seen.has(name)) problems.push(`${file}: ${name} is on the open list in tests/contracts/run.js but is not a route any more`);
+  }
+  return problems;
+});
+// <Jun Kai end>
 
 // ---------------------------------------------------------------- run
 const summary = [];

@@ -16,6 +16,7 @@ npm run hooks:install  # runs the checks below before every push (optional but r
 | `npm run check` | Both of the above. This is what the pre-push hook runs. |
 | `npm run smoke` | Boots both servers against your local MySQL, hits the public endpoints and the admin login, stops them. Needs MySQL running. |
 | `npm run smoke:full` | Same plus one feedback submission. Only run this where `backend/config/emailConfig.json` has no real credentials, or a real email will be sent. |
+| `node tests/smoke.js --archive` | What CI runs: `smoke:full` plus the Visitor Data Archive step, which seeds its own records, archives and deletes them and checks the zip. Only against a throwaway database, with blank email settings. |
 | `npm run routes:update` | Rewrites the route snapshot after you add, rename or remove a route. Commit it in the same change. |
 
 CI also boots the servers on Ubuntu and Windows with a fresh MySQL 8.4, scans new commits for secrets, and checks the

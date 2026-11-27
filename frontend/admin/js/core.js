@@ -76,7 +76,7 @@
 // NICK CHANGE SUMMARY (DONE BY NICK)
 // ============================================================
 //
-// 1. ESG JOURNEY PASSPORT
+// 1. RP XPERIENCE CENTRE JOURNEY PASSPORT
 //    function loadJourneyPassport     - Fetch visitor milestone passports for repeat engagement tracking (DONE BY NICK)
 //    function renderJourneyPassport   - Render passport summary, stamps, topic badges and top visitor journeys (DONE BY NICK)
 //
@@ -185,18 +185,15 @@
 //    function populateUserFilter()    - Populate user filter dropdown (DONE BY PRETI)
 //    function filterAuditLogs()       - Filter logs by search, action, user, target, IP, date (DONE BY PRETI)
 //    function sortFilteredLogs()      - Sort filtered logs by current sort field (DONE BY PRETI)
-//    function sortAuditLogs()         - Handle column header clicks for sorting (DONE BY PRETI)
 //    function displayAuditLogsPage()  - Display current page of filtered logs (DONE BY PRETI)
 //    function updateAuditTable()      - Update audit logs table display (DONE BY PRETI)
-//    function getAuditBadgeType()     - Determine badge style based on action type (DONE BY PRETI)
+//    <Jun Kai/> admin redesign: the table is now a list of events under a heading per day, each written as a
+//    sentence (AUDIT_SENTENCES, auditSentence, auditRow); the old column sort, badge colours, filter panel and counters went
 //    function updateAuditPagination() - Update pagination controls (DONE BY PRETI)
 //    function prevAuditPage()         - Navigate to previous audit page (DONE BY PRETI)
 //    function nextAuditPage()         - Navigate to next audit page (DONE BY PRETI)
-//    function toggleAdvancedFilters() - Show/hide advanced filter panel (DONE BY PRETI)
 //    function clearAllFilters()       - Reset all filters to default (DONE BY PRETI)
 //    function setDateRangePreset()    - Set date range (today/week/month) (DONE BY PRETI)
-//    function updateFilterIndicators() - Highlight active filters (DONE BY PRETI)
-//    function updateResultsCounts()   - Update result count displays (DONE BY PRETI)
 //    async function downloadAuditExcel() - Download filtered logs as CSV/Excel (DONE BY PRETI)
 //
 // 4. DASHBOARD MANAGEMENT (DONE BY PRETI)
@@ -240,7 +237,6 @@
 //
 // 7. FILTER CONTROLS (BOTH TABS) (DONE BY PRETI)
 //    function toggleFeedbackAdvancedFilters() - Toggle feedback advanced filters panel (DONE BY PRETI)
-//    function toggleArchiveAdvancedFilters() - Toggle archive advanced filters panel (DONE BY PRETI)
 //    function setFeedbackDateRangePreset() - Set feedback date range preset (DONE BY PRETI)
 //    function setArchiveDateRangePreset() - Set archive date range preset (DONE BY PRETI)
 //    function clearAllFeedbackFilters() - Clear all feedback filters (DONE BY PRETI)
@@ -508,7 +504,9 @@
 // This code adds automatic logout when session expires
 
 // Session timeout configuration
-const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes (matches server session)
+// <Jun Kai/> the default only: the setting on User Management changes it (adminIdleMs, below). The page's own requests
+// keep the server session alive, so this timer is what signs an idle admin out.
+const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
 const WARNING_BEFORE_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes warning before timeout
 const ACTIVITY_CHECK_INTERVAL_MS = 60 * 1000; // Check activity every minute
 
@@ -516,20 +514,34 @@ let lastActivityTime = Date.now();
 let sessionWarningShown = false;
 let activityCheckInterval = null;
 let sessionTimeoutModal = null;
+// <Jun Kai start> minutes without activity before signing out, from GET /api/admin/sign-in-settings (0 = never);
+// the latest activity of any admin tab of this browser counts (localStorage)
+let adminIdleMs = SESSION_TIMEOUT_MS;
+let adminIdleCountdown = null;
+let adminIdleLoadedAt = 0;
+const ADMIN_ACTIVITY_KEY = 'adminLastActivity';
+const ADMIN_SIGNOUT_NOTE_KEY = 'adminSignOutNote';
+// <Jun Kai end>
 
 // ==================== ACTIVITY TRACKING ====================
 
 /**
  * Reset activity timer on user interaction
  */
-function resetActivityTimer() {
+function resetActivityTimer(event) {
+    // <Jun Kai start> inside the notice only its buttons and Esc decide: a press on Sign out now must reach it, and
+    // Tab must be able to move between the two buttons
+    if (event && event.target && typeof event.target.closest === 'function' && event.target.closest('#idle-dialog')) return;
+    // <Jun Kai end>
     lastActivityTime = Date.now();
     sessionWarningShown = false;
-    
-    // Close warning modal if it's showing
-    if (sessionTimeoutModal) {
-        closeSessionWarningModal();
-    }
+    // <Jun Kai start> other admin tabs of this browser see the activity too (written at most every 5 seconds)
+    try {
+        if (lastActivityTime - Number(localStorage.getItem(ADMIN_ACTIVITY_KEY) || 0) > 5000) localStorage.setItem(ADMIN_ACTIVITY_KEY, String(lastActivityTime));
+    } catch { /* storage switched off: this tab counts alone */ }
+    // the notice is a dialog now (it used to be the sessionTimeoutModal popup)
+    closeSessionWarningModal();
+    // <Jun Kai end>
 }
 
 /**
@@ -538,6 +550,7 @@ function resetActivityTimer() {
 function initActivityTracking() {
     // Track various user interactions
     const events = ['mousedown', 'keypress', 'touchstart', 'click']; // not mousemove/scroll: they closed the warning modal
+    events.push('keydown'); // <Jun Kai/> Tab and the arrow keys count too (keypress misses them)
     
     events.forEach(event => {
         document.addEventListener(event, resetActivityTimer, { passive: true });
@@ -555,15 +568,30 @@ function checkSessionTimeout() {
     if (!loggedUser) {
         return;
     }
-    
+    // <Jun Kai start> signed in for 1 day: no idle logout, the server renews the session from the token
+    if (adminRememberedUntil()) return;
+    // a time a System Admin changed meanwhile reaches open pages within 5 minutes
+    if (Date.now() - adminIdleLoadedAt > 5 * 60000) loadAdminIdleSetting();
+    // never, when the setting is 0; another tab's activity counts; a short time gets a 1-minute notice
+    if (!adminIdleMs) return;
+    lastActivityTime = adminLatestActivity();
+    const warnBefore = adminIdleWarnMs();
+    // <Jun Kai end>
+
     const timeSinceLastActivity = Date.now() - lastActivityTime;
-    const timeUntilTimeout = SESSION_TIMEOUT_MS - timeSinceLastActivity;
-    
+    const timeUntilTimeout = adminIdleMs - timeSinceLastActivity; // <Jun Kai/> was SESSION_TIMEOUT_MS
+
     // Show warning if approaching timeout
-    if (timeUntilTimeout <= WARNING_BEFORE_TIMEOUT_MS && timeUntilTimeout > 0 && !sessionWarningShown) {
+    if (timeUntilTimeout <= warnBefore && timeUntilTimeout > 0 && !sessionWarningShown) {
         showSessionWarningModal(timeUntilTimeout);
         sessionWarningShown = true;
     }
+    // <Jun Kai start> activity in another tab meanwhile: the notice goes away
+    if (timeUntilTimeout > warnBefore && sessionWarningShown) {
+        sessionWarningShown = false;
+        closeSessionWarningModal();
+    }
+    // <Jun Kai end>
     
     // Auto-logout if timed out
     if (timeUntilTimeout <= 0) {
@@ -578,6 +606,10 @@ function startSessionMonitoring() {
     // Reset timer
     lastActivityTime = Date.now();
     sessionWarningShown = false;
+    // <Jun Kai start> a fresh page starts the count again; the minutes come from the setting on User Management
+    try { localStorage.setItem(ADMIN_ACTIVITY_KEY, String(lastActivityTime)); } catch { /* storage switched off */ }
+    loadAdminIdleSetting();
+    // <Jun Kai end>
     
     // Clear existing interval if any
     if (activityCheckInterval) {
@@ -608,105 +640,55 @@ function stopSessionMonitoring() {
  * Show session timeout warning modal
  */
 function showSessionWarningModal(timeRemaining) {
-    const minutesRemaining = Math.ceil(timeRemaining / 60000);
-    
-    // Create modal if it doesn't exist
-    if (!sessionTimeoutModal) {
-        sessionTimeoutModal = document.createElement('div');
-        sessionTimeoutModal.id = 'session-timeout-modal';
-        sessionTimeoutModal.innerHTML = `
-            <div class="modal-overlay" style="
-                position: fixed;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                background: rgba(0, 0, 0, 0.7);
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                z-index: 10000;
-            ">
-                <div class="modal-content" style="
-                    background: white;
-                    padding: 30px;
-                    border-radius: 8px;
-                    max-width: 400px;
-                    text-align: center;
-                    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-                ">
-                    <div style="font-size: 48px; margin-bottom: 20px;">⏰</div>
-                    <h2 style="margin: 0 0 15px 0; color: #333;">Session Timeout Warning</h2>
-                    <p style="color: #666; margin-bottom: 25px;">
-                        Your session will expire in <strong id="timeout-countdown">${minutesRemaining}</strong> minute(s) due to inactivity.
-                    </p>
-                    <p style="color: #666; margin-bottom: 25px; font-size: 14px;">
-                        Click "Stay Logged In" to continue your session, or you will be automatically logged out.
-                    </p>
-                    <div style="display: flex; gap: 10px; justify-content: center;">
-                        <button id="session-stay-btn" style="
-                            background: #10b981;
-                            color: white;
-                            border: none;
-                            padding: 10px 20px;
-                            border-radius: 5px;
-                            cursor: pointer;
-                            font-size: 16px;
-                        ">Stay Logged In</button>
-                        <button id="session-logout-btn" style="
-                            background: #ef4444;
-                            color: white;
-                            border: none;
-                            padding: 10px 20px;
-                            border-radius: 5px;
-                            cursor: pointer;
-                            font-size: 16px;
-                        ">Logout Now</button>
-                    </div>
-                </div>
-            </div>
-        `;
-        
-        document.body.appendChild(sessionTimeoutModal);
-        
-        // Add event listeners
-        document.getElementById('session-stay-btn').addEventListener('click', () => {
-            resetActivityTimer();
-            // Make a keep-alive request to refresh server session
-            fetch('/api/admin/keep-alive', { method: 'POST' }).catch(() => {});
-            closeSessionWarningModal();
-        });
-        
-        document.getElementById('session-logout-btn').addEventListener('click', () => {
-            handleLogout();
-        });
-        
-        // Start countdown update
-        updateCountdown(timeRemaining);
-    } else {
-        sessionTimeoutModal.style.display = 'block';
-        updateCountdown(timeRemaining);
+    // <Jun Kai start> a calm dialog with a countdown in mm:ss (it replaced a popup with an emoji and the browser's
+    // alert box); its buttons are Stay signed in and Sign out now (admin.html, #idle-dialog)
+    const dialog = document.getElementById('idle-dialog');
+    if (!dialog || typeof dialog.showModal !== 'function') return;
+    const text = document.getElementById('idle-dialog-text');
+    if (text) text.textContent = `Nothing has been clicked or typed here for a while. The admin page signs out after ${adminIdleWords()} without activity.`;
+    if (!dialog.dataset.bound) {
+        dialog.dataset.bound = '1';
+        // Esc means "I am here"
+        dialog.addEventListener('cancel', (event) => { event.preventDefault(); stayAdminSignedIn(); });
     }
+    if (!dialog.open) dialog.showModal();
+    updateCountdown(timeRemaining);
+    clearInterval(adminIdleCountdown);
+    adminIdleCountdown = setInterval(() => {
+        lastActivityTime = adminLatestActivity();
+        const left = adminIdleMs - (Date.now() - lastActivityTime);
+        if (!adminIdleMs || left > adminIdleWarnMs()) { sessionWarningShown = false; closeSessionWarningModal(); return; }
+        updateCountdown(left);
+        if (left <= 0) handleSessionTimeout();
+    }, 1000);
+    const stay = document.getElementById('idle-stay-btn');
+    if (stay) stay.focus();
+    // <Jun Kai end>
 }
 
 /**
  * Update countdown timer in warning modal
  */
 function updateCountdown(timeRemaining) {
-    const countdownElement = document.getElementById('timeout-countdown');
+    // <Jun Kai start> minutes and seconds, every second
+    const countdownElement = document.getElementById('idle-dialog-countdown');
     if (countdownElement) {
-        const minutesRemaining = Math.ceil(timeRemaining / 60000);
-        countdownElement.textContent = minutesRemaining;
+        const seconds = Math.max(0, Math.ceil(timeRemaining / 1000));
+        countdownElement.textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
     }
+    // <Jun Kai end>
 }
 
 /**
  * Close session timeout warning modal
  */
 function closeSessionWarningModal() {
-    if (sessionTimeoutModal) {
-        sessionTimeoutModal.style.display = 'none';
-    }
+    // <Jun Kai start>
+    clearInterval(adminIdleCountdown);
+    adminIdleCountdown = null;
+    const dialog = document.getElementById('idle-dialog');
+    if (dialog && dialog.open) dialog.close();
+    // <Jun Kai end>
 }
 
 /**
@@ -714,16 +696,103 @@ function closeSessionWarningModal() {
  */
 function handleSessionTimeout() {
     console.log('⏰ Session timeout - auto logout');
-    
+
     // Clear session monitoring
     stopSessionMonitoring();
-    
-    // Show timeout message
-    alert('⏰ Your session has expired due to inactivity. You will be logged out.');
-    
+
+    // <Jun Kai start> the login page says why, instead of a browser alert box
+    closeSessionWarningModal();
+    adminSignOutNote(`You were signed out after ${adminIdleWords()} without activity.`);
+    // <Jun Kai end>
+
     // Perform logout
     handleLogout();
 }
+
+// <Jun Kai start>
+// The latest activity of this tab or another admin tab of this browser
+function adminLatestActivity() {
+    try { return Math.max(lastActivityTime, Number(localStorage.getItem(ADMIN_ACTIVITY_KEY) || 0)); } catch { return lastActivityTime; }
+}
+
+// 2 minutes of notice, 1 minute when the time is under 10 minutes
+const adminIdleWarnMs = () => (adminIdleMs >= 10 * 60000 ? WARNING_BEFORE_TIMEOUT_MS : 60000);
+
+// "30 minutes", "1 hour", "8 hours"
+function adminIdleWords() {
+    const minutes = Math.round(adminIdleMs / 60000);
+    if (minutes >= 60 && minutes % 60 === 0) return `${minutes / 60} hour${minutes === 60 ? '' : 's'}`;
+    return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+}
+
+// Stay signed in: counts as activity, and the server session is renewed at once
+function stayAdminSignedIn() {
+    resetActivityTimer();
+    fetch('/api/admin/keep-alive', { method: 'POST' }).catch(() => {});
+}
+
+async function loadAdminIdleSetting() {
+    adminIdleLoadedAt = Date.now();
+    try {
+        const response = await fetch('/api/admin/sign-in-settings', { cache: 'no-store' });
+        const data = await response.json();
+        if (response.ok && data.success && data.settings && Number.isFinite(Number(data.settings.idleMinutes))) adminIdleMs = Number(data.settings.idleMinutes) * 60000;
+    } catch { /* keeps the default 30 minutes */ }
+}
+
+// A line for the login page after the page signed out by itself; the page reloads on logout, so it waits in localStorage
+function adminSignOutNote(text) {
+    try { localStorage.setItem(ADMIN_SIGNOUT_NOTE_KEY, text); } catch { /* storage switched off: no line */ }
+}
+
+function showAdminSignOutNote() {
+    let text = '';
+    try {
+        text = localStorage.getItem(ADMIN_SIGNOUT_NOTE_KEY) || '';
+        localStorage.removeItem(ADMIN_SIGNOUT_NOTE_KEY);
+    } catch { /* storage switched off */ }
+    if (text) showLoginNote(text);
+}
+
+// The Sign-in card on User Management: the minutes for every admin (a System Admin changes them)
+async function loadIdleSignOutCard() {
+    const select = document.getElementById('idle-minutes');
+    if (!select) return;
+    select.disabled = true;
+    try {
+        const response = await fetch('/api/admin/sign-in-settings', { cache: 'no-store' });
+        const data = await response.json();
+        if (!response.ok || !data.success) throw new Error(data.error || 'Could not load');
+        const minutes = String(data.settings.idleMinutes);
+        if (![...select.options].some((option) => option.value === minutes)) select.add(new Option(`${minutes} min`, minutes));
+        select.value = minutes;
+        select.dataset.saved = minutes;
+        select.disabled = sessionStorage.getItem('userRole') !== 'system_admin';
+    } catch (error) {
+        showNotification(`Could not load the sign-in setting: ${error.message}`, 'error');
+    }
+}
+
+async function saveIdleSignOut() {
+    const select = document.getElementById('idle-minutes');
+    if (!select || sessionStorage.getItem('userRole') !== 'system_admin') return;
+    const minutes = Number(select.value);
+    select.disabled = true;
+    try {
+        const response = await fetch('/api/admin/sign-in-settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idleMinutes: minutes }) });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.success) throw new Error(data.error || 'Save failed');
+        select.dataset.saved = String(minutes);
+        adminIdleMs = minutes * 60000;
+        showNotification(minutes ? `Admins are now signed out after ${adminIdleWords()} without activity` : 'Admins are no longer signed out for no activity', 'success');
+    } catch (error) {
+        if (select.dataset.saved) select.value = select.dataset.saved;
+        showNotification(`Could not save: ${error.message}`, 'error');
+    } finally {
+        select.disabled = false;
+    }
+}
+// <Jun Kai end>
 
 // ==================== GLOBAL FETCH INTERCEPTOR FOR 401 DETECTION ====================
 
@@ -743,7 +812,9 @@ window.fetch = function(...args) {
                     sessionExpiredHandled = true;
                     console.log('🔒 401 Unauthorized detected - session expired');
                     setTimeout(() => {
-                        alert('🔒 Your session has expired. Please log in again.');
+                        // <Jun Kai start> the login page says it, instead of a browser alert box
+                        adminSignOutNote('Your session ended. Please sign in again.');
+                        // <Jun Kai end>
                         handleLogout();
                     }, 100);
                 });
@@ -880,10 +951,18 @@ async function handleLogin(event) {
     console.log('Username:', username, 'Password:', password ? '***' : 'empty');
     
     if (!username || !password) {
-        alert('Please enter both username and password');
+        // <Jun Kai start> on the card instead of a browser popup
+        showLoginNote('Enter your username and password.', 'error');
+        document.getElementById(username ? 'password' : 'username').focus();
+        // <Jun Kai end>
         return;
     }
     
+    // <Jun Kai start> one sign-in at a time; an old message goes away
+    showLoginNote('');
+    const submitButton = document.querySelector('#login-form button[type="submit"]');
+    if (submitButton) submitButton.disabled = true;
+    // <Jun Kai end>
     try {
         console.log('Attempting API login...');
         const response = await fetch('/api/admin/login', {
@@ -891,7 +970,9 @@ async function handleLogin(event) {
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ username, password })
+            // <Jun Kai start>
+            body: JSON.stringify({ username, password, remember: !!(document.getElementById('remember-me') || {}).checked })
+            // <Jun Kai end>
         });
         
         console.log('Response status:', response.status);
@@ -900,34 +981,135 @@ async function handleLogin(event) {
         
         if (data.success) {
             console.log('✅ Login successful');
-            // Store logged in user
-            sessionStorage.setItem('loggedUser', data.user.username);
-            sessionStorage.setItem('userRole', data.user.role);
-            await loadActiveThemeOnLogin();
-
-            // Load active theme on login
-            setTimeout(() => {
-                loadActiveThemeOnLogin();
-            }, 500);
-            
-            // Update UI and apply role-based access
-            updateUIForUser(data.user.username, data.user.role);
-            
-            // Load dashboard data
-            await loadDashboardData();
-            
-            // Show dashboard
-            document.getElementById('login-page').style.display = 'none';
-            document.getElementById('admin-dashboard').style.display = 'block';
+            // <Jun Kai start> the same steps as a remembered sign-in (finishAdminSignIn, below)
+            await finishAdminSignIn(data.user, data.rememberUntil || null);
+            // <Jun Kai end>
         } else {
             console.log('❌ Login failed:', data.error);
-            alert(data.error || 'Invalid username or password');
+            // <Jun Kai start> on the card instead of a browser popup; the password is cleared, ready to type again
+            showLoginNote(data.error || 'Invalid username or password', 'error');
+            const passwordField = document.getElementById('password');
+            passwordField.value = '';
+            passwordField.focus();
+            // <Jun Kai end>
         }
     } catch (error) {
         console.error('❌ Login error:', error);
-        alert('Login failed. Please check your connection and try again.');
+        // <Jun Kai start>
+        showLoginNote('Could not reach the server. Check the connection and try again.', 'error');
+        // <Jun Kai end>
+    }
+    // <Jun Kai start>
+    finally {
+        if (submitButton) submitButton.disabled = false;
+    }
+    // <Jun Kai end>
+}
+
+// <Jun Kai start>
+// After a good login or a remembered sign-in: the user, the theme, the dashboard. rememberUntil: ISO time or null.
+async function finishAdminSignIn(user, rememberUntil) {
+    sessionStorage.setItem('loggedUser', user.username);
+    sessionStorage.setItem('userRole', user.role);
+    if (rememberUntil) {
+        sessionStorage.setItem('rememberedUntil', rememberUntil);
+        try { localStorage.setItem('adminRememberHint', JSON.stringify({ username: user.username, until: rememberUntil })); } catch { /* private window: fine */ }
+    } else {
+        sessionStorage.removeItem('rememberedUntil');
+        clearAdminRememberHint();
+    }
+    await loadActiveThemeOnLogin();
+    setTimeout(() => { loadActiveThemeOnLogin(); }, 500);
+    updateUIForUser(user.username, user.role);
+    await loadDashboardData();
+    document.getElementById('login-page').style.display = 'none';
+    document.getElementById('admin-dashboard').style.display = 'block';
+    // the count of incidents that need a look, next to Incidents in the sidebar (incidents.js)
+    if (typeof refreshIncidentsBadge === 'function') refreshIncidentsBadge(true);
+    openAdminLinkTarget();
+}
+
+// A link to the admin page that ends with #schedule-history (the page that opens after the PC was off has one) goes
+// to the History of the Server Schedule page once the admin is signed in. The mark is taken off the address after.
+const ADMIN_HISTORY_LINK = '#schedule-history';
+function openAdminLinkTarget() {
+    if (location.hash !== ADMIN_HISTORY_LINK) return;
+    history.replaceState(null, '', location.pathname + location.search);
+    if (typeof showPage !== 'function' || typeof openScheduleHistory !== 'function') return;
+    showPage('server-schedule');
+    openScheduleHistory();
+}
+
+// the time "keep me signed in" ends in this tab, or null
+function adminRememberedUntil() {
+    const until = Date.parse(sessionStorage.getItem('rememberedUntil') || '');
+    return Number.isFinite(until) && until > Date.now() ? until : null;
+}
+
+// This browser asked to stay signed in: { username, until } (no password, the token itself is an httpOnly cookie)
+function adminRememberHint() {
+    try {
+        const hint = JSON.parse(localStorage.getItem('adminRememberHint') || 'null');
+        return hint && hint.username && Date.parse(hint.until) > Date.now() ? hint : null;
+    } catch {
+        return null;
     }
 }
+
+function clearAdminRememberHint() {
+    try { localStorage.removeItem('adminRememberHint'); } catch { /* private window: fine */ }
+}
+
+// kind 'error': a failed sign-in, in a red box; it goes away as soon as a field is typed in
+function showLoginNote(text, kind) {
+    const note = document.getElementById('login-note');
+    if (!note) return;
+    note.textContent = text || '';
+    note.hidden = !text;
+    note.classList.toggle('login-note-error', kind === 'error');
+    note.setAttribute('role', kind === 'error' ? 'alert' : 'status');
+    const form = document.getElementById('login-form');
+    if (kind === 'error' && form && !form.dataset.noteClears) {
+        form.dataset.noteClears = '1';
+        form.addEventListener('input', () => { if (note.classList.contains('login-note-error')) showLoginNote(''); });
+    }
+}
+
+// On page load without a signed-in tab: when this browser chose "keep me signed in", the server's token decides
+async function tryRememberedSignIn() {
+    const hint = adminRememberHint();
+    if (!hint) return;
+    showLoginNote(`Signing you in as ${hint.username}`);
+    try {
+        const response = await fetch('/api/admin/remember', { cache: 'no-store' });
+        const data = await response.json();
+        if (!response.ok || !data.success) throw new Error(data.error || 'Not signed in');
+        await finishAdminSignIn(data.user, data.rememberUntil || hint.until);
+        showLoginNote('');
+        initActivityTracking();
+        startSessionMonitoring();
+    } catch (error) {
+        clearAdminRememberHint();
+        const username = document.getElementById('username');
+        if (username && !username.value) username.value = hint.username;
+        showLoginNote('Your 1-day sign-in has ended. Enter your password to sign in again.');
+        const password = document.getElementById('password');
+        if (password) password.focus();
+    }
+}
+
+function toggleLoginPassword() {
+    const input = document.getElementById('password');
+    const button = document.getElementById('login-eye');
+    if (!input || !button) return;
+    const show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    button.setAttribute('aria-pressed', String(show));
+    button.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+    button.title = show ? 'Hide password' : 'Show password';
+    input.focus();
+}
+// <Jun Kai end>
 
 // Handle logout
 function handleLogout() {
@@ -942,7 +1124,10 @@ function handleLogout() {
     }).catch(() => {});
     
     sessionStorage.clear();
-    
+    // <Jun Kai start> signing out also forgets "keep me signed in" here (the server deletes the token)
+    clearAdminRememberHint();
+    // <Jun Kai end>
+
     // Reload page to ensure clean state for next login
     window.location.reload();
 }
@@ -954,23 +1139,18 @@ function updateUIForUser(username, role) {
     document.getElementById('logged-role').textContent = formatRoleName(role);
     document.querySelector('.user-avatar').textContent = username[0].toUpperCase();
     
-    // MAIN section: Always visible for ALL roles
-    // Contains: Dashboard, Feedback Data, Digital Tree, Pledgeboard, Style & Theme Settings
+    // Dashboard: always visible for ALL roles
     const mainSection = document.getElementById('main-section');
     if (mainSection) {
         mainSection.style.display = 'block';
     }
-    
-    // ADMINISTRATION section: ONLY visible for system_admin
-    // Contains: Overlay Management, Question Management, User Management, Archive, Audit Logs, Data Export
-    const adminSection = document.getElementById('admin-section');
-    if (role === 'system_admin') {
-        if (adminSection) adminSection.style.display = 'block';
-    } else {
-        // Hide for IT_staff and IT_admin
-        if (adminSection) adminSection.style.display = 'none';
-    }
-    
+
+    // <Jun Kai start> The sidebar is grouped by task since the redesign, so there is no ADMINISTRATION section to
+    // hide any more. Each link that only a System Admin may open is marked data-admin-only in admin.html, and
+    // sidebar.js takes those links out of the groups and out of the page search for IT staff and IT admins.
+    if (typeof applySidebarRole === 'function') applySidebarRole(role);
+    // <Jun Kai end>
+
     // Show/hide ONLY decrypt/download buttons based on role
     // Filter buttons should be visible for ALL roles
     const decryptButtons = document.querySelectorAll('#decrypt-emails-btn, #re-encrypt-btn, #decrypt-archive-emails-btn, #re-encrypt-archive-btn');
@@ -980,10 +1160,6 @@ function updateUIForUser(username, role) {
         decryptButtons.forEach(btn => btn.style.display = 'none');
     }
 
-    // Lost & Found and Parameter Adjustment are system-admin pages that sit in the all-roles sidebar sections
-    document.querySelectorAll(".nav-item[onclick*=\"showPage('lost-found')\"], .nav-item[onclick*=\"showPage('parameter-adjustment')\"]")
-        .forEach(item => { item.style.display = role === 'system_admin' ? '' : 'none'; });
-    
     // If current page is an admin page and user is not system admin, redirect to dashboard
     const currentPage = document.querySelector('.page.active');
     if (currentPage && !currentPage.id.includes('dashboard') && role !== 'system_admin') {

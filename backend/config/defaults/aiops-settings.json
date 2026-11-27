@@ -1,0 +1,28 @@
+{
+  "enabled": true,
+  "intervalSeconds": 60,
+  "healthEverySeconds": 300,
+  "retentionDays": 30,
+  "keepIncidentsDays": 90,
+  "quietHours": true,
+  "learnFromVerdicts": true,
+  "learnStreak": 3,
+  "learnMaxSteps": 2,
+  "learnWindowDays": 30,
+  "cooldownMinutes": 30,
+  "clearAfterMinutes": 10,
+  "offerFixes": true,
+  "fixDelayMinutes": 5,
+  "localAi": true,
+  "detectors": {
+    "spike": { "enabled": true, "sensitivity": 3 },
+    "timeOfDay": { "enabled": true, "sensitivity": 3 },
+    "drift": { "enabled": true, "sensitivity": 3 },
+    "disk": { "enabled": true, "sensitivity": 3 },
+    "services": { "enabled": true, "sensitivity": 3 },
+    "tablets": { "enabled": true, "sensitivity": 3 },
+    "logs": { "enabled": true, "sensitivity": 3 }
+  },
+  "advisor": { "enabled": true, "model": "qwen2.5:3b" },
+  "fixes": { "start-kiosk": "ask" }
+}

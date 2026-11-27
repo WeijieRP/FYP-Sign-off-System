@@ -1,17 +1,22 @@
 // Owner: Role 3, Jun Kai.
 // Usage forecasting for the Hardware page, statistics only (no AI, as agreed with the supervisor):
 // Holt's damped trend (double exponential smoothing) for CPU, memory and GPU, a straight-line fit for
-// the disk. Pure functions, unit-tested in tests/unit/forecast.test.js.
+// the disk, daily averages for forecasts more than 2 days ahead, and the check that tells a dependable forecast from
+// a rough guide. Pure functions, unit-tested in tests/unit/forecast.test.js.
 // <Jun Kai start>
 const ALPHAS = [0.2, 0.35, 0.5, 0.65, 0.8];
 const BETAS = [0.02, 0.05, 0.1, 0.2, 0.3];
 // An undamped trend runs on for the whole horizon, so two hours of the PC settling after a wake-up became
 // "memory 0 % tomorrow". A trend is now trusted for about as long as it has been seen: it fades by half over
 // half the unbroken run (at least 6 steps), and a run shorter than TRUST_STEPS (6 hours of 10-minute steps)
-// counts for less.
+// counts for less. Since 18 Nov 2026 it also fades by half within TRUST_STEPS at the latest: on a PC that ran for
+// days without a break, half the run was days, so a small trend of the last hour carried on for days (on the test
+// data memory 7 days ahead came out at 92.7 % instead of 81.6 %). The forecast still continues from the current
+// level, so a steep fall in the last hour can still reach 0 % within hours. For the daily forecast the cap is 36 days.
 const MIN_HALF_LIFE_STEPS = 6;
 const TRUST_STEPS = 36;
-const dampingFor = (steps) => 0.5 ** (1 / Math.max(MIN_HALF_LIFE_STEPS, steps / 2));
+const MAX_HALF_LIFE_STEPS = TRUST_STEPS;
+const dampingFor = (steps) => 0.5 ** (1 / Math.min(MAX_HALF_LIFE_STEPS, Math.max(MIN_HALF_LIFE_STEPS, steps / 2)));
 const DAMPING = dampingFor(24);
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
@@ -129,7 +134,40 @@ function bucketAverage(rows, bucketMs, keys) {
     });
 }
 
+// Forecasts more than DAILY_AFTER_HOURS (2 days) ahead work on one average per day instead of 10 minute steps. Until
+// 18 Nov 2026 the steps went up to 7 days, but they carry on from the current level: a forecast 7 days ahead made at
+// night showed tonight's low CPU, while 30 days ahead on the daily averages showed the usual level.
+const DAILY_AFTER_HOURS = 48;
+const usesDailyAverages = (hours) => Number(hours) > DAILY_AFTER_HOURS;
+
+// values: daily averages, oldest first, only the days that have samples; days: how far ahead.
+// Returns the Holt result with at most maxPoints points, each { day (1 = tomorrow), value, low, high }, or null
+// with fewer than 6 days. The damped trend fades within weeks, so far ahead this is the usual level and range.
+function dailyForecast(values, days, maxPoints = 200) {
+    const result = holtForecast(values, days);
+    if (!result) return null;
+    const stepDays = Math.max(1, Math.ceil(days / maxPoints));
+    const points = [];
+    result.points.forEach((p, i) => { if ((i + 1) % stepDays === 0 || i === result.points.length - 1) points.push({ day: i + 1, ...p }); });
+    return { ...result, points, stepDays };
+}
+
+// A forecast is dependable for about as far ahead as the stored samples go back (5 % short still counts: the
+// hourly clean-up keeps the oldest sample hovering around the keep period).
+// rough: the history is shorter than the horizon. reason 'history': it gets there by waiting (waitHours);
+// reason 'retention': samples are deleted before it can (neededRetentionDays is the keep period that would do).
+const HISTORY_TOLERANCE = 0.95;
+// keptForGood: a forecast more than 2 days ahead reads the daily summaries, which are never deleted (no 'retention' reason)
+function horizonCheck({ horizonHours, historyHours, retentionDays, keptForGood = false }) {
+    const keptHours = keptForGood ? Infinity : retentionDays * 24;
+    const history = Math.max(0, Math.min(Number(historyHours) || 0, keptHours));
+    const base = { horizonHours, historyHours: Math.round(history), retentionDays, keptForGood };
+    if (history >= horizonHours * HISTORY_TOLERANCE) return { ...base, rough: false, reason: null, waitHours: 0 };
+    if (keptHours < horizonHours * HISTORY_TOLERANCE) return { ...base, rough: true, reason: 'retention', waitHours: null, neededRetentionDays: Math.ceil(horizonHours / 24) };
+    return { ...base, rough: true, reason: 'history', waitHours: Math.ceil(horizonHours - history) };
+}
+
 function round1(n) { return Math.round(n * 10) / 10; }
 
-module.exports = { holt, fitHolt, holtForecast, linearTrend, diskForecast, bucketAverage, clamp, dampingFor };
+module.exports = { holt, fitHolt, holtForecast, dailyForecast, horizonCheck, linearTrend, diskForecast, bucketAverage, clamp, dampingFor, DAILY_AFTER_HOURS, usesDailyAverages };
 // <Jun Kai end>

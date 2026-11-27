@@ -41,21 +41,15 @@ function updateNickUsageAnalytics() { // Render Nick usage analytics cards (DONE
 }
 
 function downloadLostFoundCsv() { // Download Lost & Found CSV export (DONE BY NICK)
-    window.location.href = '/api/admin/lost-found-reports/export.csv';
+    exportLostFoundCsvWithPassword(); // <Jun Kai/> the file now holds the decrypted contacts, so it asks for the password
 }
 
 // Load Lost & Found reports for the Administration page - changes made by nick
 async function loadLostFoundReports() {
+    prepareLostFoundPage(); // <Jun Kai/>
     const tbody = document.getElementById('lost-found-reports-body');
-    if (tbody) {
-        tbody.innerHTML = `
-            <tr>
-                <td colspan="10" style="text-align: center; padding: 40px; color: #64748b;">
-                    Loading Lost & Found reports...
-                </td>
-            </tr>
-        `;
-    }
+    // <Jun Kai/> only the first load says "Loading": a reload after a status change keeps the rows in view
+    if (tbody && !allLostFoundReports.length) tbody.innerHTML = '<tr><td colspan="9" class="ui-empty">Loading the reports</td></tr>';
 
     loadNickUsageAnalytics();
 
@@ -68,37 +62,55 @@ async function loadLostFoundReports() {
         }
 
         allLostFoundReports = data.reports || [];
+        lostFoundLoadError = ''; // <Jun Kai/>
         filterLostFoundReports();
     } catch (error) {
         console.error('Error loading Lost & Found reports:', error);
         allLostFoundReports = [];
         filteredLostFoundReports = [];
+        lostFoundLoadError = error.message || 'no answer'; // <Jun Kai/> the table says the load failed instead of "no reports"
         updateLostFoundReportTable();
-        showNotification(error.message || 'Failed to load Lost & Found reports', 'error');
     }
 }
 
 function filterLostFoundReports() { // changes made by nick
     const searchTerm = document.getElementById('lost-found-search-input')?.value.toLowerCase() || '';
     const typeFilter = document.getElementById('lost-found-type-filter')?.value || '';
-    const statusFilter = document.getElementById('lost-found-status-filter')?.value || '';
+    const statusFilter = document.querySelector('input[name="lost-found-status"]:checked')?.value || ''; // <Jun Kai/> the status chips
 
-    filteredLostFoundReports = allLostFoundReports.filter((report) => {
+    // <Jun Kai/> the search and the type are checked apart from the status, so each status chip can count its reports
+    const matchesSearchAndType = (report) => {
         const haystack = [
             report.tracking_code,
             report.report_type,
             report.item_description,
             report.location_text,
-            report.contact_info,
+            lostFoundContacts[report.id] || '', // <Jun Kai/> only a contact that was decrypted on this page can be searched
             report.details,
             report.current_page,
             report.status
         ].join(' ').toLowerCase();
 
         return (!searchTerm || haystack.includes(searchTerm)) &&
-            (!typeFilter || report.report_type === typeFilter) &&
-            (!statusFilter || report.status === statusFilter);
-    });
+            (!typeFilter || report.report_type === typeFilter);
+    };
+    filteredLostFoundReports = allLostFoundReports.filter((report) => matchesSearchAndType(report) && (!statusFilter || report.status === statusFilter));
+    // <Jun Kai/> newest first as the server sends them, or oldest first after a click on the Report heading
+    if (lostFoundOldestFirst) filteredLostFoundReports.reverse();
+
+    // <Jun Kai start> the number on each status chip
+    const counts = { all: 0, new: 0, reviewed: 0, resolved: 0 };
+    for (const report of allLostFoundReports) {
+        if (!matchesSearchAndType(report)) continue;
+        counts.all++;
+        const status = String(report.status || 'new').toLowerCase();
+        if (status in counts) counts[status]++;
+    }
+    for (const [key, value] of Object.entries(counts)) {
+        const chip = document.getElementById(`lost-found-count-${key}`);
+        if (chip) chip.textContent = String(value);
+    }
+    // <Jun Kai end>
 
     updateLostFoundReportTable();
 }
@@ -134,7 +146,7 @@ function getLostFoundPhotoPath(report) { // Robust admin photo path support for 
 
 function renderLostFoundPhotoCell(report) { // Admin preview link for uploaded Lost & Found item photos (DONE BY NICK)
     const photoPath = getLostFoundPhotoPath(report);
-    if (!photoPath) return '<span class="text-muted">No photo</span>';
+    if (!photoPath) return '<span class="lf-muted">No photo</span>';
 
     const photoName = report?.item_photo_original_name
         || report?.itemPhotoOriginalName
@@ -142,10 +154,8 @@ function renderLostFoundPhotoCell(report) { // Admin preview link for uploaded L
     const escapedPath = escapeHtml(photoPath);
     const escapedName = escapeHtml(photoName);
 
-    return `<a class="lost-found-photo-link" href="${escapedPath}" target="_blank" rel="noopener" title="${escapedName}">
-                <img src="${escapedPath}" alt="${escapedName}" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.textContent='Photo unavailable'; this.parentElement.classList.add('is-missing');">
-                <span>View photo</span>
-           </a>`;
+    // <Jun Kai/> a small picture (the redesign); a file that does not load is swapped for "Photo unavailable" by prepareLostFoundPage()
+    return `<a class="lf-photo" href="${escapedPath}" target="_blank" rel="noopener" title="Open ${escapedName}"><img class="ui-thumb" src="${escapedPath}" alt="${escapedName}" loading="lazy"></a>`;
 }
 
 function updateLostFoundReportTable() { // changes made by nick
@@ -159,50 +169,51 @@ function updateLostFoundReportTable() { // changes made by nick
         summary.textContent = `${shown} of ${total} report${total === 1 ? '' : 's'} shown`;
     }
 
+    // <Jun Kai start> one line in the redesign; a load that failed says so, with Try again
     if (!filteredLostFoundReports.length) {
-        tbody.innerHTML = `
-            <tr>
-                <td colspan="10" class="empty-state">
-                    <div class="empty-state-title">No Lost & Found reports found</div>
-                    <div class="empty-state-text">
-                        ${allLostFoundReports.length === 0
-                            ? 'Reports submitted from the feedback form will appear here.'
-                            : 'Try changing the search or filters.'}
-                    </div>
-                </td>
-            </tr>
-        `;
+        const text = lostFoundLoadError
+            ? `Could not load the reports: ${escapeHtml(String(lostFoundLoadError).replace(/\.$/, ''))}. <button type="button" class="ui-link" onclick="loadLostFoundReports()">Try again</button>`
+            : allLostFoundReports.length === 0
+                ? 'Reports that visitors send from the feedback form will show here.'
+                : 'No report matches the search and filters.';
+        tbody.innerHTML = `<tr><td colspan="9" class="ui-empty">${text}</td></tr>`;
         return;
     }
+    // <Jun Kai end>
 
     tbody.innerHTML = filteredLostFoundReports.map((report) => {
         const status = String(report.status || 'new').toLowerCase();
-        const date = report.created_at ? new Date(report.created_at).toLocaleString() : '-';
-        const pageLabel = report.current_page ? `<span class="lost-found-page-label">Page: ${escapeHtml(report.current_page)}</span>` : '';
+        // <Jun Kai/> a short date: the year only when it is not this year
+        const when = report.created_at ? new Date(report.created_at) : null;
+        const date = when && !Number.isNaN(when.getTime()) ? when.toLocaleString('en-SG', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', ...(when.getFullYear() === new Date().getFullYear() ? {} : { year: 'numeric' }) }) : '-';
+        const pageLabel = report.current_page ? `<span class="lf-page">Page: ${escapeHtml(report.current_page)}</span>` : ''; // <Jun Kai/>
         const trackingCode = report.tracking_code || `LF-${String(report.id || 0).padStart(5, '0')}`;
         const photoCell = renderLostFoundPhotoCell(report);
 
+        // <Jun Kai start> the redesigned row: type and status as tags, and only the next step at the end
         return `
             <tr>
-                <td>${escapeHtml(date)}</td>
-                <td><strong>${escapeHtml(trackingCode)}</strong></td>
-                <td><span class="badge badge-${getLostFoundBadgeType(status)}">${escapeHtml(report.report_type || '-')}</span></td>
-                <td><strong>${escapeHtml(report.item_description || '-')}</strong>${pageLabel}</td>
+                <td class="lf-report"><b class="lf-code">${escapeHtml(trackingCode)}</b><span class="lf-date">${escapeHtml(date)}</span></td>
+                <td>${lostFoundTypeTag(report.report_type)}</td>
+                <td class="lf-wrap"><b>${escapeHtml(report.item_description || '-')}</b>${pageLabel}</td>
                 <td>${photoCell}</td>
-                <td>${escapeHtml(report.location_text || '-')}</td>
-                <td>${escapeHtml(report.contact_info || '-')}</td>
-                <td class="lost-found-details-cell">${escapeHtml(report.details || '-')}</td>
-                <td><span class="badge badge-${getLostFoundBadgeType(status)}">${escapeHtml(formatLostFoundStatus(status))}</span></td>
-                <td class="lost-found-actions-cell">
-                    <button class="btn-secondary" onclick="updateLostFoundReportStatus(${Number(report.id)}, 'reviewed')" ${status === 'reviewed' || status === 'resolved' ? 'disabled' : ''}>Mark Reviewed</button>
-                    <button class="btn-primary" onclick="updateLostFoundReportStatus(${Number(report.id)}, 'resolved')" ${status === 'resolved' ? 'disabled' : ''}>Mark Resolved</button>
-                </td>
+                <td class="lf-wrap">${escapeHtml(report.location_text || '-')}</td>
+                <td class="lf-wrap">${lostFoundContactCell(report, trackingCode)}</td>
+                <td class="lf-wrap lf-details">${escapeHtml(report.details || '-')}</td>
+                <td>${lostFoundStatusTag(status)}</td>
+                <td class="lf-actions">${lostFoundNextStep(report, status, trackingCode)}</td>
             </tr>
         `;
+        // <Jun Kai end>
     }).join('');
 }
 
-async function updateLostFoundReportStatus(reportId, status) { // changes made by nick
+async function updateLostFoundReportStatus(reportId, status, button) { // changes made by nick
+    // <Jun Kai start> the button waits while it saves, and the line under the table says what happened
+    const report = allLostFoundReports.find((item) => Number(item.id) === Number(reportId));
+    const code = report?.tracking_code || `LF-${String(reportId || 0).padStart(5, '0')}`;
+    if (button) button.disabled = true;
+    // <Jun Kai end>
     try {
         const response = await fetch(`/api/admin/lost-found-reports/${encodeURIComponent(reportId)}/status`, {
             method: 'PATCH',
@@ -215,18 +226,183 @@ async function updateLostFoundReportStatus(reportId, status) { // changes made b
             throw new Error(data.error || 'Unable to update report status.');
         }
 
-        showNotification('Lost & Found report updated', 'success');
         await loadLostFoundReports();
+        lostFoundSay(`Marked ${code} as ${status}.`); // <Jun Kai/>
     } catch (error) {
         console.error('Error updating Lost & Found report:', error);
-        showNotification(error.message || 'Failed to update report', 'error');
+        lostFoundSay(`Could not mark ${code} as ${status}: ${error.message || 'no answer'}`, true); // <Jun Kai/>
+        if (button) button.disabled = false; // <Jun Kai/>
     }
 }
+
+// <Jun Kai start> the encrypted contact (like visitor emails): "Encrypted" until a System Admin decrypts it with their
+// password; a decrypted contact stays visible by report id until Hide or a reload of the page, also when the list
+// reloads after a status change
+const lostFoundContacts = {};
+
+function lostFoundContactCell(report, code) {
+    const id = Number(report.id);
+    const open = lostFoundContacts[id];
+    if (open) return `<span class="lf-contact">${escapeHtml(open)}</span> <button type="button" class="ui-link lf-contact-btn" data-lf-contact-hide="${id}" aria-label="Hide the contact of ${escapeHtml(code)}">Hide</button>`;
+    if (!report.has_contact) return '<span class="lf-muted">None</span>';
+    const canDecrypt = sessionStorage.getItem('userRole') === 'system_admin';
+    return `<span class="lf-locked">${uiIcon('lock', 12)}Encrypted</span>${canDecrypt ? ` <button type="button" class="ui-link lf-contact-btn" data-lf-contact="${id}" aria-label="Decrypt the contact of ${escapeHtml(code)}">Decrypt</button>` : ''}`;
+}
+
+async function decryptLostFoundContact(id) {
+    const report = allLostFoundReports.find((item) => Number(item.id) === Number(id));
+    const code = report?.tracking_code || `LF-${String(id).padStart(5, '0')}`;
+    const password = await showPasswordPrompt(`Show the contact of ${code}?\n\nEnter your System Admin password:`);
+    if (!password) return;
+    try {
+        const response = await fetch(`/api/admin/lost-found-reports/${encodeURIComponent(id)}/contact`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.success) throw new Error(data.error || `the server answered ${response.status}`);
+        lostFoundContacts[Number(id)] = data.contact;
+        filterLostFoundReports();
+        lostFoundSay(`Decrypted the contact of ${code}.`);
+    } catch (error) {
+        lostFoundSay(`Could not decrypt the contact of ${code}: ${error.message}`, true);
+    }
+}
+
+async function exportLostFoundCsvWithPassword() {
+    const password = await showPasswordPrompt('Export every report with its contact as a CSV file?\n\nThe file holds the decrypted contacts. Enter your System Admin password:');
+    if (!password) return;
+    try {
+        const response = await fetch('/api/admin/lost-found-reports/export.csv', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password })
+        });
+        if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            throw new Error(data.error || `the server answered ${response.status}`);
+        }
+        const blob = await response.blob();
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `lost_found_reports_${new Date().toISOString().slice(0, 10)}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+        lostFoundSay('Exported the reports as a CSV file.');
+    } catch (error) {
+        lostFoundSay(`Could not export the reports: ${error.message}`, true);
+    }
+}
+// <Jun Kai end>
+
+// <Jun Kai start> Lost & Found A (admin redesign)
+let lostFoundLoadError = ''; // the reason the last load failed, empty after a good load
+let lostFoundPageReady = false;
+let lostFoundSayTimer = null;
+let lostFoundOldestFirst = false;
+
+// the Report heading: newest first (the server's order) or oldest first
+function sortLostFoundByDate() {
+    lostFoundOldestFirst = !lostFoundOldestFirst;
+    const indicator = document.getElementById('lost-found-sort-date');
+    if (indicator) indicator.className = `sort-indicator ${lostFoundOldestFirst ? 'asc' : 'desc'}`;
+    indicator?.closest('th')?.setAttribute('aria-sort', lostFoundOldestFirst ? 'ascending' : 'descending');
+    filterLostFoundReports();
+}
+const LOST_FOUND_STATUS_TONES = { new: 'red', reviewed: 'amber', resolved: 'green' };
+
+// once: the icons of the filter bar, the clicks on the next step and ... buttons, broken photos, and the menu
+function prepareLostFoundPage() {
+    if (lostFoundPageReady) return;
+    lostFoundPageReady = true;
+    document.querySelectorAll('#lost-found-page [data-fb-icon]').forEach((slot) => {
+        slot.innerHTML = uiIcon(slot.dataset.fbIcon, slot.tagName === 'BUTTON' ? 15 : 14);
+    });
+    const body = document.getElementById('lost-found-reports-body');
+    const menu = document.getElementById('lost-found-menu');
+    if (body) {
+        body.addEventListener('click', (event) => {
+            const decrypt = event.target.closest('[data-lf-contact]');
+            if (decrypt) return decryptLostFoundContact(Number(decrypt.dataset.lfContact));
+            const hide = event.target.closest('[data-lf-contact-hide]');
+            if (hide) { delete lostFoundContacts[Number(hide.dataset.lfContactHide)]; filterLostFoundReports(); return; }
+            const step = event.target.closest('[data-lf-status]');
+            if (step) updateLostFoundReportStatus(Number(step.dataset.lfId), step.dataset.lfStatus, step);
+            // a ... button opens the shared menu by itself (popovertarget); this only notes which report it is for
+            const more = event.target.closest('[data-lf-menu]');
+            if (more && menu) { menu.dataset.lfId = more.dataset.lfMenu; lostFoundMenuButton = more; }
+        });
+        // a photo file that does not load: the small picture becomes a short note
+        body.addEventListener('error', (event) => {
+            const img = event.target;
+            if (!(img instanceof HTMLImageElement) || !img.classList.contains('ui-thumb')) return;
+            const note = document.createElement('span');
+            note.className = 'lf-muted';
+            note.textContent = 'Photo unavailable';
+            (img.closest('a') || img).replaceWith(note);
+        }, true);
+    }
+    if (menu) {
+        menu.addEventListener('toggle', (event) => {
+            if (event.newState !== 'open' || !lostFoundMenuButton) return;
+            uiPlaceUnder(menu, lostFoundMenuButton, 'end');
+            menu.querySelector('button')?.focus();
+        });
+        menu.addEventListener('click', (event) => {
+            const item = event.target.closest('[data-lf-menu-status]');
+            if (!item) return;
+            menu.hidePopover();
+            updateLostFoundReportStatus(Number(menu.dataset.lfId), item.dataset.lfMenuStatus);
+        });
+    }
+}
+let lostFoundMenuButton = null;
+
+function lostFoundSay(text, isError = false) {
+    const line = document.getElementById('lost-found-status');
+    if (!line) return;
+    line.textContent = text;
+    line.classList.toggle('is-error', isError);
+    clearTimeout(lostFoundSayTimer);
+    lostFoundSayTimer = setTimeout(() => { line.textContent = ''; }, isError ? 12000 : 6000);
+}
+
+function lostFoundTypeTag(type) {
+    const value = String(type || '').toLowerCase();
+    const tone = value === 'lost' ? 'red' : value === 'found' ? 'blue' : 'grey';
+    const label = value ? value.charAt(0).toUpperCase() + value.slice(1) : 'Unknown';
+    return `<span class="ui-tag is-${tone}">${escapeHtml(label)}</span>`;
+}
+
+function lostFoundStatusTag(status) {
+    return `<span class="ui-tag is-${LOST_FOUND_STATUS_TONES[status] || 'grey'}">${escapeHtml(formatLostFoundStatus(status))}</span>`;
+}
+
+// a new report: Mark reviewed, and Mark resolved now in its ... menu; a reviewed one: Mark resolved; a resolved one: Done
+function lostFoundNextStep(report, status, code) {
+    const id = Number(report.id);
+    if (status === 'new') {
+        return `<span class="lf-next"><button type="button" class="ui-btn ui-btn-secondary lf-step" data-lf-id="${id}" data-lf-status="reviewed">Mark reviewed</button><button type="button" class="ui-btn ui-btn-icon" popovertarget="lost-found-menu" data-lf-menu="${id}" aria-label="More for ${escapeHtml(code)}" title="More">${uiIcon('more', 16)}</button></span>`;
+    }
+    if (status === 'reviewed') {
+        return `<span class="lf-next"><button type="button" class="ui-btn ui-btn-secondary lf-step" data-lf-id="${id}" data-lf-status="resolved">Mark resolved</button></span>`;
+    }
+    return '<span class="lf-done">Done</span>';
+}
+// <Jun Kai end>
 
 // Update pagination
 function updateAuditPagination(total) {
     const totalPages = Math.ceil(total / auditLogsPerPage);
-    document.getElementById('audit-page-info').textContent = `Page ${currentAuditPage} of ${totalPages || 1}`;
+    // <Jun Kai start> the redesigned page says which events it shows, like the Feedback list
+    const first = (currentAuditPage - 1) * auditLogsPerPage + 1;
+    const last = Math.min(total, currentAuditPage * auditLogsPerPage);
+    const filtered = total !== allAuditLogs.length ? ` (${allAuditLogs.length} in total)` : '';
+    document.getElementById('audit-page-info').textContent = total > 0 ? `Showing ${first} to ${last} of ${total}${filtered}` : 'Nothing to show';
+    // <Jun Kai end>
     document.getElementById('prev-audit-btn').disabled = currentAuditPage <= 1;
     document.getElementById('next-audit-btn').disabled = currentAuditPage >= totalPages;
 }
@@ -247,20 +423,6 @@ function nextAuditPage() {
         currentAuditPage++;
         displayAuditLogsPage();
         updateAuditPagination(filteredAuditLogs.length);
-    }
-}
-
-// Toggle advanced filters panel
-function toggleAdvancedFilters() {
-    const panel = document.getElementById('advanced-filters-panel');
-    const icon = document.getElementById('filter-toggle-icon');
-    
-    if (panel.style.display === 'none') {
-        panel.style.display = 'block';
-        icon.classList.add('rotated');
-    } else {
-        panel.style.display = 'none';
-        icon.classList.remove('rotated');
     }
 }
 
@@ -312,101 +474,11 @@ function setDateRangePreset(preset) {
     filterAuditLogs();
 }
 
-// Update filter indicators (highlight active filters)
-function updateFilterIndicators() {
-    // Count active filters
-    let activeCount = 0;
-    
-    const searchInput = document.getElementById('audit-search-input');
-    const filterAction = document.getElementById('filter-action');
-    const filterUser = document.getElementById('filter-user');
-    const filterTargetType = document.getElementById('filter-target-type');
-    const filterIp = document.getElementById('filter-ip');
-    const filterDateFrom = document.getElementById('filter-date-from');
-    const filterDateTo = document.getElementById('filter-date-to');
-    
-    // Check and highlight each filter
-    if (searchInput && searchInput.value) {
-        activeCount++;
-    }
-    
-    if (filterAction && filterAction.value) {
-        activeCount++;
-        filterAction.classList.add('has-value');
-    } else if (filterAction) {
-        filterAction.classList.remove('has-value');
-    }
-    
-    if (filterUser && filterUser.value) {
-        activeCount++;
-        filterUser.classList.add('has-value');
-    } else if (filterUser) {
-        filterUser.classList.remove('has-value');
-    }
-    
-    if (filterTargetType && filterTargetType.value) {
-        activeCount++;
-        filterTargetType.classList.add('has-value');
-    } else if (filterTargetType) {
-        filterTargetType.classList.remove('has-value');
-    }
-    
-    if (filterIp && filterIp.value) {
-        activeCount++;
-        filterIp.classList.add('has-value');
-    } else if (filterIp) {
-        filterIp.classList.remove('has-value');
-    }
-    
-    if (filterDateFrom && filterDateFrom.value) {
-        activeCount++;
-        filterDateFrom.classList.add('has-value');
-    } else if (filterDateFrom) {
-        filterDateFrom.classList.remove('has-value');
-    }
-    
-    if (filterDateTo && filterDateTo.value) {
-        activeCount++;
-        filterDateTo.classList.add('has-value');
-    } else if (filterDateTo) {
-        filterDateTo.classList.remove('has-value');
-    }
-    
-    // Update active filters count
-    const activeFiltersCount = document.getElementById('active-filters-count');
-    if (activeFiltersCount) {
-        activeFiltersCount.textContent = activeCount;
-    }
-    
-    // Show/hide results info bar
-    const resultsInfoBar = document.getElementById('results-info-bar');
-    if (resultsInfoBar) {
-        if (activeCount > 0 || filteredAuditLogs.length !== allAuditLogs.length) {
-            resultsInfoBar.style.display = 'flex';
-        } else {
-            resultsInfoBar.style.display = 'none';
-        }
-    }
-}
-
-// Update results counts
-function updateResultsCounts() {
-    const filteredCount = document.getElementById('filtered-count');
-    const totalCount = document.getElementById('total-count');
-    const resultsCount = document.getElementById('results-count');
-    const totalLogs = document.getElementById('total-logs');
-    
-    if (filteredCount) filteredCount.textContent = filteredAuditLogs.length;
-    if (totalCount) totalCount.textContent = allAuditLogs.length;
-    if (resultsCount) resultsCount.textContent = filteredAuditLogs.length;
-    if (totalLogs) totalLogs.textContent = allAuditLogs.length;
-}
-
 // Download audit logs as Excel
 async function downloadAuditExcel() {
     const userRole = sessionStorage.getItem('userRole');
     if (userRole !== 'system_admin') {
-        alert('Access denied. System Administrator privileges required.');
+        showNotification('Only a System Admin can download the audit logs.', 'error'); // <Jun Kai/>
         return;
     }
     
@@ -423,7 +495,7 @@ async function downloadAuditExcel() {
         }));
         
         if (excelData.length === 0) {
-            alert('No audit logs to download. Try adjusting your filters.');
+            showNotification('No audit logs to download. Try other filters.', 'info'); // <Jun Kai/>
             return;
         }
         
@@ -433,11 +505,13 @@ async function downloadAuditExcel() {
             headers.join(','),
             ...excelData.map(row => 
                 headers.map(header => {
-                    const value = String(row[header] || '');
-                    // Escape quotes and wrap in quotes if contains comma or quotes
-                    return value.includes(',') || value.includes('"') || value.includes('\n')
-                        ? `"${value.replace(/"/g, '""')}"` 
-                        : value;
+                    // <Jun Kai start> every cell in quotes, 0 kept, and text a spreadsheet would run as a formula gets a '
+                    // in front: a username typed at the login and a browser's user agent both land in this file
+                    const raw = row[header];
+                    let value = raw === null || raw === undefined ? '' : String(raw);
+                    if (/^[=+\-@\t\r]/.test(value) && !/^[+-]?\d+(\.\d+)?$/.test(value)) value = `'${value}`;
+                    return `"${value.replace(/"/g, '""')}"`;
+                    // <Jun Kai end>
                 }).join(',')
             )
         ].join('\n');
@@ -455,25 +529,13 @@ async function downloadAuditExcel() {
         
         console.log(`✅ Downloaded ${excelData.length} audit logs`);
         
-        // Log the download action
-        const loggedUsername = sessionStorage.getItem('loggedUser');
-        if (loggedUsername) {
-            try {
-                await fetch('/api/admin/logout-audit', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        username: loggedUsername
-                    })
-                });
-            } catch (err) {
-                console.error('Failed to log download action:', err);
-            }
-        }
+        // <Jun Kai start> A call to /api/admin/logout-audit stood here "to log the download". That route is the Logout:
+        // it wrote a LOGOUT line and ended the session, so the admin was signed out right after every download.
+        // <Jun Kai end>
         
     } catch (error) {
         console.error('❌ Error downloading audit logs:', error);
-        alert('Error downloading audit logs: ' + error.message);
+        showNotification('Could not download the audit logs: ' + error.message, 'error'); // <Jun Kai/>
     }
 }
 

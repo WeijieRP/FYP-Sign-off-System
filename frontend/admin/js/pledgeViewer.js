@@ -49,124 +49,102 @@ async function translateAdminTextToEnglish(sourceId, outputId, button) {
     }
 }
 
+// <Jun Kai start> One kit window (a native <dialog>, va-dialog look) for the photo, pledge, answer and insight viewers.
+// Escape and the close buttons close it (a click outside does not, so a double click or a text selection dragged out
+// cannot close it by mistake), and the focus goes back to where it was. The old class name (photo-popup, pledge-popup, qa-popup) stays on the window, so the Feedback side panel can tell that a
+// viewer is open and lets the first Escape close the viewer only.
+function openKitViewer({ className, title, sub = '', wide = false }) {
+    document.querySelectorAll(`dialog.${className}`).forEach((old) => old.remove());
+    const opener = document.activeElement;
+    const id = `${className}-${Date.now()}`;
+    const dialog = document.createElement('dialog');
+    dialog.className = `va-dialog kit-viewer${wide ? ' kit-viewer-wide' : ''} ${className}`;
+    dialog.setAttribute('aria-labelledby', `${id}-title`);
+    dialog.innerHTML = `<div class="va-dialog-inner">
+        <div class="va-dialog-head">
+            <div><h3 id="${id}-title"></h3><div class="va-dialog-sub"></div></div>
+            <button type="button" class="ui-btn ui-btn-icon va-dialog-close" data-kit-close aria-label="Close" title="Close">${uiIcon('close', 18)}</button>
+        </div>
+        <div class="va-dialog-body"></div>
+        <div class="va-dialog-foot"><span class="kit-viewer-status" role="status" aria-live="polite"></span><button type="button" class="ui-btn ui-btn-secondary" data-kit-close>Close</button></div>
+    </div>`;
+    dialog.querySelector('h3').textContent = title;
+    const subLine = dialog.querySelector('.va-dialog-sub');
+    if (sub) subLine.textContent = sub;
+    else subLine.remove();
+    const close = () => closeKitViewer(dialog);
+    dialog.querySelectorAll('[data-kit-close]').forEach((button) => button.addEventListener('click', close));
+    dialog.addEventListener('cancel', (event) => { event.preventDefault(); close(); });
+    dialog.addEventListener('close', () => {
+        dialog.remove();
+        if (opener && typeof opener.focus === 'function' && document.contains(opener)) opener.focus();
+    });
+    document.body.appendChild(dialog);
+    dialog.showModal();
+    return { dialog, body: dialog.querySelector('.va-dialog-body'), foot: dialog.querySelector('.va-dialog-foot'), status: dialog.querySelector('.kit-viewer-status') };
+}
+
+function closeKitViewer(dialog) {
+    if (!dialog || !dialog.isConnected || dialog.classList.contains('is-closing')) return;
+    const done = () => { if (dialog.open) dialog.close(); else dialog.remove(); };
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return done();
+    dialog.classList.add('is-closing');
+    setTimeout(done, 150);
+}
+
+// a "Translate to English" button under a visitor's text, when the AI settings allow it
+function kitTranslateButton(sourceId, outputId) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'ui-btn ui-btn-secondary kit-viewer-translate';
+    button.textContent = 'Translate to English';
+    button.addEventListener('click', () => translateAdminTextToEnglish(sourceId, outputId, button));
+    const output = document.createElement('div');
+    output.id = outputId;
+    output.className = 'admin-translation-result';
+    output.style.display = 'none';
+    return [button, output];
+}
+
+function kitViewedLine() {
+    const line = document.createElement('p');
+    line.className = 'kit-viewer-meta';
+    line.textContent = `Viewed by ${sessionStorage.getItem('loggedUser') || 'you'} at ${new Date().toLocaleTimeString()}`;
+    return line;
+}
+// <Jun Kai end>
+
 // View pledge
 function viewPledge(feedbackId, pledgeText) {
     if (pledgeText === undefined) {
         const row = findLoadedFeedbackRow(feedbackId);
         pledgeText = row ? (row.pledge || '') : '';
     }
-    const popup = document.createElement('div');
+    // <Jun Kai start> the pledge in a kit window, as plain text
     const pledgeSourceId = `pledge-source-${feedbackId}`;
     const pledgeTranslationId = `pledge-translation-${feedbackId}`;
-    popup.className = 'pledge-popup';
-    popup.style.cssText = `
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0, 0, 0, 0.95);
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        z-index: 1001;
-    `;
-
-    popup.innerHTML = `
-        <div class="pledge-container" style="
-            background: white;
-            padding: 25px;
-            border-radius: 12px;
-            max-width: 600px;
-            max-height: 80vh;
-            width: 90vw;
-            text-align: left;
-            position: relative;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            display: flex;
-            flex-direction: column;
-        ">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-shrink: 0;">
-                <h3 style="margin: 0; color: #1e293b;">Pledge - ID: ${feedbackId}</h3>
-                <button onclick="closePledgePopup()" style="
-                    background: none;
-                    border: none;
-                    font-size: 24px;
-                    cursor: pointer;
-                    color: #64748b;
-                    padding: 5px 10px;
-                ">×</button>
-            </div>
-            
-            <div id="${pledgeSourceId}" style="
-                background: #f8fafc;
-                padding: 20px;
-                border-radius: 8px;
-                border: 2px solid #e2e8f0;
-                margin-bottom: 20px;
-                overflow-y: auto;
-                flex: 1;
-                white-space: pre-wrap;
-                line-height: 1.6;
-            ">
-                 ${pledgeText ? escapeHtmlSafe(pledgeText) : 'No pledge text available'}
-            </div>
-            
-            <button onclick="translateAdminTextToEnglish('${pledgeSourceId}', '${pledgeTranslationId}', this)" style="
-                padding: 9px 14px;
-                background: #475569;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                cursor: pointer;
-                font-size: 13px;
-                font-weight: 600;
-                align-self: flex-start;
-                flex-shrink: 0;
-                margin-bottom: 12px;
-            ">
-                Translate to English
-            </button>
-
-            <div id="${pledgeTranslationId}" class="admin-translation-result" style="display: none;"></div>
-
-            <div style="font-size: 12px; color: #64748b; margin-bottom: 15px; flex-shrink: 0;">
-                Viewed by: ${sessionStorage.getItem('loggedUser')} at ${new Date().toLocaleTimeString()}
-            </div>
-            
-            <button onclick="closePledgePopup()" style="
-                padding: 10px 20px;
-                background: #0A1E81;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                cursor: pointer;
-                font-size: 14px;
-                font-weight: 600;
-                align-self: flex-end;
-                flex-shrink: 0;
-            ">
-                Close
-            </button>
-        </div>
-    `;
-
-    document.body.appendChild(popup);
+    const { body } = openKitViewer({ className: 'pledge-popup', title: 'Pledge', sub: `Feedback ${feedbackId}` });
+    const text = document.createElement('div');
+    text.id = pledgeSourceId;
+    text.className = 'kit-viewer-text';
+    text.textContent = pledgeText || 'No pledge text available';
+    if (!pledgeText) text.classList.add('is-empty');
+    body.appendChild(text);
+    if (pledgeText && adminAiAllows('translate')) body.append(...kitTranslateButton(pledgeSourceId, pledgeTranslationId));
+    body.appendChild(kitViewedLine());
+    // <Jun Kai end>
 }
 
 // Close pledge popup
 function closePledgePopup() {
-    const popup = document.querySelector('.pledge-popup');
-    if (popup) {
-        popup.remove();
-    }
+    closeKitViewer(document.querySelector('dialog.pledge-popup')); // <Jun Kai/>
 }
 
 // View question answers
 function viewQuestionAnswers(feedbackId) {
     const row = findLoadedFeedbackRow(feedbackId);
     if (!row) {
-        alert('Feedback not found in the loaded table. Refresh the page and try again.');
+        showNotification('That feedback is not in the loaded table. Refresh the page and try again.', 'error'); // <Jun Kai/>
         return;
     }
     createQuestionAnswersPopup(feedbackId, row.question_answers || []);
@@ -183,108 +161,40 @@ function findLoadedFeedbackRow(feedbackId) {
 
 // Create Q&A popup
 function createQuestionAnswersPopup(feedbackId, answers) {
-    const popup = document.createElement('div');
-    popup.className = 'qa-popup';
-    popup.style.cssText = `
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0, 0, 0, 0.95);
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        z-index: 1001;
-    `;
-
-    const answersHtml = answers && answers.length > 0 
-        ? answers.map((answer, index) => {
-            const answerSourceId = `qa-answer-${feedbackId}-${index}`;
-            const answerTranslationId = `qa-translation-${feedbackId}-${index}`;
-            return `
-            <div class="qa-item" style="margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid #e2e8f0;">
-                <div style="font-weight: 600; color: #1e293b; margin-bottom: 8px;">${escapeHtmlSafe(answer.question_text)}</div>
-                <div id="${answerSourceId}" style="color: #475569; padding-left: 10px; border-left: 3px solid #e2e8f0;">
-                    ${formatAnswer(answer.option_label || answer.answer_value, answer.question_type)}
-                </div>
-                <button onclick="translateAdminTextToEnglish('${answerSourceId}', '${answerTranslationId}', this)" style="
-                    margin-top: 10px;
-                    padding: 7px 12px;
-                    background: #475569;
-                    color: white;
-                    border: none;
-                    border-radius: 6px;
-                    cursor: pointer;
-                    font-size: 12px;
-                    font-weight: 600;
-                ">Translate to English</button>
-                <div id="${answerTranslationId}" class="admin-translation-result" style="display: none;"></div>
-            </div>
-        `;
-        }).join('')
-        : '<div style="color: #64748b; text-align: center; padding: 40px;">No question answers available</div>';
-
-    popup.innerHTML = `
-        <div class="qa-container" style="
-            background: white;
-            padding: 25px;
-            border-radius: 12px;
-            max-width: 700px;
-            max-height: 80vh;
-            width: 90vw;
-            text-align: left;
-            position: relative;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            display: flex;
-            flex-direction: column;
-        ">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-shrink: 0;">
-                <h3 style="margin: 0; color: #1e293b;">Questions & Answers - ID: ${feedbackId}</h3>
-                <button onclick="closeQAPopup()" style="
-                    background: none;
-                    border: none;
-                    font-size: 24px;
-                    cursor: pointer;
-                    color: #64748b;
-                    padding: 5px 10px;
-                ">×</button>
-            </div>
-            
-            <div style="
-                overflow-y: auto;
-                flex: 1;
-                padding-right: 10px;
-            ">
-                ${answersHtml}
-            </div>
-            
-            <div style="font-size: 12px; color: #64748b; margin-top: 20px; flex-shrink: 0;">
-                Viewed by: ${sessionStorage.getItem('loggedUser')} at ${new Date().toLocaleTimeString()}
-            </div>
-            
-            <button onclick="closeQAPopup()" style="
-                margin-top: 20px;
-                padding: 10px 20px;
-                background: #0A1E81;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                cursor: pointer;
-                font-size: 14px;
-                font-weight: 600;
-                align-self: flex-end;
-                flex-shrink: 0;
-            ">
-                Close
-            </button>
-        </div>
-    `;
-
-    document.body.appendChild(popup);
+    // <Jun Kai start> every question and its answer in a kit window, as plain text
+    const { body } = openKitViewer({ className: 'qa-popup', title: 'Questions and answers', sub: `Feedback ${feedbackId}` });
+    if (!answers || !answers.length) {
+        const empty = document.createElement('p');
+        empty.className = 'kit-viewer-empty';
+        empty.textContent = 'No question answers available';
+        body.appendChild(empty);
+    } else {
+        const list = document.createElement('ol');
+        list.className = 'kit-qa';
+        answers.forEach((answer, index) => {
+            const item = document.createElement('li');
+            const question = document.createElement('p');
+            question.className = 'kit-qa-q';
+            question.textContent = answer.question_text || `Question ${index + 1}`;
+            const answerId = `qa-answer-${feedbackId}-${index}`;
+            const reply = document.createElement('div');
+            reply.id = answerId;
+            reply.className = 'kit-qa-a';
+            const shown = formatAnswerText(answer.option_label || answer.answer_value, answer.question_type);
+            reply.textContent = shown || 'No answer provided';
+            if (!shown) reply.classList.add('is-empty');
+            item.append(question, reply);
+            if (shown && adminAiAllows('translate')) item.append(...kitTranslateButton(answerId, `qa-translation-${feedbackId}-${index}`));
+            list.appendChild(item);
+        });
+        body.appendChild(list);
+    }
+    body.appendChild(kitViewedLine());
+    // <Jun Kai end>
 }
 
 // Format answer based on question type
+// (escaped HTML: the Feedback and Archive side panel puts it into its markup)
 function formatAnswer(answer, questionType) {
     if (!answer) return '<em>No answer provided</em>';
     const safeAnswer = escapeHtmlSafe(answer);
@@ -307,11 +217,20 @@ function formatAnswer(answer, questionType) {
     }
 }
 
+// <Jun Kai start> the same reading as plain text, only for textContent (the answers window); '' when there is no answer
+function formatAnswerText(answer, questionType) {
+    if (!answer) return '';
+    if (questionType === 'rating') {
+        const rating = parseInt(answer) || 0;
+        return rating >= 1 && rating <= 5 ? `Rating: ${rating}/5` : `Rating: ${rating}`;
+    }
+    if (questionType === 'yesno') return ['1', 'yes', 'true'].includes(String(answer).trim().toLowerCase()) ? 'Yes' : 'No';
+    return String(answer);
+}
+// <Jun Kai end>
+
 // Close Q&A popup
 function closeQAPopup() {
-    const popup = document.querySelector('.qa-popup');
-    if (popup) {
-        popup.remove();
-    }
+    closeKitViewer(document.querySelector('dialog.qa-popup')); // <Jun Kai/>
 }
 

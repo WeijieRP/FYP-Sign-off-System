@@ -640,6 +640,20 @@ class TreeManager {
         if (this.leafDetailSnippet) {
             this.leafDetailSnippet.textContent = snippet;
         }
+        // <Jun Kai start>
+        // a leaf kept after the Visitor Data Archive has no pledge to show: the month and year of the visit and one line
+        if (visitor.archived) {
+            const visited = new Date(visitor.created_at);
+            if (this.leafDetailDate) {
+                this.leafDetailDate.textContent = Number.isNaN(visited.getTime())
+                    ? 'Date unavailable'
+                    : visited.toLocaleDateString('en-SG', { month: 'long', year: 'numeric', timeZone: 'Asia/Singapore' });
+            }
+            if (this.leafDetailSnippet) {
+                this.leafDetailSnippet.textContent = "This visitor's details were archived.";
+            }
+        }
+        // <Jun Kai end>
 
         this.leafDetailCard.classList.add('active');
         this.leafDetailCard.setAttribute('aria-hidden', 'false');
@@ -745,7 +759,7 @@ class TreeManager {
     updateTreeHeading() {
         if (this.demoFallEnabled && !this.isReviewMode) {
             if (this.treeTitle) {
-                this.treeTitle.textContent = 'ESG Digital Tree - Leaf Fall Demo';
+                this.treeTitle.textContent = 'RP Xperience Centre Digital Tree - Leaf Fall Demo';
             }
             if (this.treeSubtitle) {
                 this.treeSubtitle.textContent = `${this.visitors.length} demo leaves will fall. No live feedback data is changed.`;
@@ -755,8 +769,8 @@ class TreeManager {
 
         if (this.treeTitle) {
             this.treeTitle.textContent = this.isReviewMode
-                ? `${this.selectedYear} ESG Tree Review`
-                : '🌳 ESG Digital Tree';
+                ? `${this.selectedYear} RP Xperience Centre Tree Review`
+                : '🌳 RP Xperience Centre Digital Tree';
         }
 
         if (this.treeSubtitle) {
@@ -777,7 +791,11 @@ class TreeManager {
         const leafCount = Number(page.leafCount) || 0;
 
         this.bookYear.textContent = page.year;
-        this.bookCount.textContent = `${leafCount} ${leafCount === 1 ? 'leaf' : 'leaves'}`;
+        // <Jun Kai start>
+        // archived leaves are in the count but no longer on that year's tree, so the book says how many
+        const archivedLeaves = Number(page.archivedLeafCount) || 0;
+        this.bookCount.textContent = `${leafCount} ${leafCount === 1 ? 'leaf' : 'leaves'}${archivedLeaves ? ` · ${archivedLeaves} archived` : ''}`;
+        // <Jun Kai end>
         this.reviewTreePreview.innerHTML = '';
 
         const dotCount = Math.min(leafCount, 90);

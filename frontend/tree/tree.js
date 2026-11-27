@@ -96,6 +96,49 @@
 //   - resize                           - Refresh on resize
 // ============================================================
 
+// Leaf name font size at Leaf Display Scale 1; the same for every leaf.
+const LEAF_GLOW_FADE_MS = 900; // how long a just-landed leaf takes to fade its neon glow in
+const LANDING_STAGE_CLEAR_MS = 2500; // the next new leaf appears at the bottom middle this long after the one before takes off
+// A new leaf's light shade fades into the dark shade of its badge colour over this long, once its light time
+// ("A leaf stays light for") is over (playLeafTintFade). The two shades are tree.css's .leaf-tinted::before
+// filter (light) and .leaf-tint-aged::before filter (dark): keep them the same as there.
+const TINT_FADE_MS = 10000;
+const LEAF_TINT_LIGHT_FILTER = 'brightness(1.42) contrast(1.12) saturate(1.12)';
+const LEAF_TINT_DARK_FILTER = 'brightness(0.98) contrast(1.16) saturate(1.32)';
+
+// The landing flight's easing, cubic-bezier(0.4, 0, 0.3, 1): a slow start and a long, gentle arrival.
+// Worked into the flight's keyframes (planLeafLandingFlight), so time at the bottom middle can come first.
+function flightEase(time) {
+    const x1 = 0.4, y1 = 0, x2 = 0.3, y2 = 1;
+    const bezier = (a, b, s) => (3 * a * s * (1 - s) ** 2) + (3 * b * s * s * (1 - s)) + (s ** 3);
+    let s = time;
+    for (let i = 0; i < 8; i += 1) {
+        const x = bezier(x1, x2, s) - time;
+        const slope = (3 * x1 * (1 - s) ** 2) + (6 * (x2 - x1) * s * (1 - s)) + (3 * (1 - x2) * s * s);
+        if (Math.abs(slope) < 1e-6) break;
+        s = Math.min(1, Math.max(0, s - (x / slope)));
+    }
+    return bezier(y1, y2, s);
+}
+const LEAF_NAME_BASE_FONT_PX = 9;
+// The screen the 2D tree was designed on; on any other screen that view is scaled to fit (layoutTreePictures).
+const DESIGN_SCREEN = Object.freeze({ width: 1917, height: 1007 });
+const DESIGN_ASPECT = 16 / 9;     // the designed part of a picture captured from the 3D tree (its middle)
+const PAINTED_TREE_WIDTH = 2200;  // the painted tree's width on the design screen (it was fixed in tree.css)
+
+// How wide a name box may be (% of the leaf box) at a given box height (%) and still stay on the
+// leaf blade, centred in the middle of the leaf. Measured from the leaf photos (the narrowest of the
+// left/right and new/old photos); a one-line name gets a long box, three lines a short one.
+const LEAF_NAME_MIDRIB_WIDTHS = Object.freeze({
+    green: [[8, 50.5], [10, 48.5], [12, 46.5], [14, 44.5], [16, 42.5], [18, 40], [20, 37.5], [22, 35.5], [24, 33.5], [26, 30.5], [28, 27.5], [30, 23.5]],
+    gold: [[8, 46.5], [10, 43.5], [12, 40.5], [14, 37.5], [16, 34.5], [18, 31], [20, 28.5], [22, 25], [24, 22], [26, 18], [28, 14], [30, 10.5]]
+});
+// Custom uploaded leaf images of unknown shape: a level box of fixed size.
+const LEAF_NAME_LEVEL_WIDTHS = Object.freeze({
+    green: [[21, 31]],
+    gold: [[20, 29]]
+});
+
 const DEFAULT_BADGE_LEAF_COLORS = Object.freeze({
     'feedback-completer': '#4a7c59',
     'climate-champion': '#0f766e',
@@ -103,7 +146,8 @@ const DEFAULT_BADGE_LEAF_COLORS = Object.freeze({
     'sustainable-living-advocate': '#16a34a',
     'ocean-guardian': '#0284c7',
     'governance-guardian': '#7c3aed',
-    'social-champion': '#d97706'
+    'social-champion': '#d97706',
+    'multi-pledge': '#8b5a2b' // a visitor who chose several pledge topics (Owner: Role 2, Wei Jie)
 });
 
 class TreeManager {
@@ -202,6 +246,13 @@ class TreeManager {
                 shortLabel: 'Social',
                 className: 'badge-social',
                 preferredSide: 'RightLeaf.png'
+            },
+            // Several pledge topics chosen in the pledge form: brown by default (Owner: Role 2, Wei Jie).
+            'multi-pledge': {
+                label: 'Multiple pledges',
+                shortLabel: 'Multiple',
+                className: 'badge-multi',
+                preferredSide: null
             }
         };
 
@@ -232,6 +283,26 @@ class TreeManager {
         this.knownLeafKeys = new Set();
         this.pendingLandingLeafKeys = new Set();
         this.landingCleanupTimers = new Map();
+        this.landingFlights = new Map();
+        // A new feedback's leaf first shows at the bottom middle for this long, then flies to the tree
+        // (treeParameters.leafShowcaseSeconds, "Time at the bottom middle"); new leaves take turns there.
+        this.leafShowcaseMs = 12000;
+        // The tree's pictures (treeParameters.treeStyle, the admin's 2D Tree Display): 'painted' (the painted
+        // stage pictures), or 'natural' / 'digital' (pictures captured from the 3D tree, checklist item 12).
+        this.treeStyle = 'painted';
+        this.treePictureKey = '';         // the pictures loaded now (loadTreeImage loads only what changed)
+        this.treePictureMeta = null;      // a captured picture's canopy box and size (stage<N>.json)
+        this.missingTreePictures = new Set(); // styles and stages already reported as not captured
+        this.screenScale = 1;             // this screen against the design screen (layoutTreePictures)
+        this.landingStageFreeAt = 0;
+        this.leafGlowEpochs = new Map(); // leaf key -> when its glow pulse starts (animationClock() time)
+        this.leafFalls = new Map(); // leaf key -> its fall (playLeafFall), kept so a refresh mid-fall carries on
+        this.renderedLeafKeys = new Set();
+        this.leafPositions = new Map();
+        this.leafLayoutKey = '';
+        this.titleKeepOut = null; // the title box's area, kept clear of leaves (getTitleKeepOut)
+        this.placedLeafCircles = [];
+        this.leafSpacingRadius = 0.5;
         this.recentLandingWindowMs = 2 * 60 * 1000;
         this.demoLandingEnabled = this.isDemoPage && this.urlParams.get('demoLanding') === '1';
         this.demoLandingRunNumber = 0;
@@ -274,7 +345,7 @@ class TreeManager {
         `;
         treeContainer.appendChild(controls);
         document.body.classList.add('tree-demo-page');
-        document.title = 'ESG Digital Tree Animation Demo';
+        document.title = 'RP Xperience Centre Digital Tree Animation Demo';
     }
 
     // ==================== TREE TITLE BOX ====================
@@ -293,7 +364,7 @@ class TreeManager {
         // Update text content
         const titleEl = document.getElementById('treeTitle');
         const subtitleEl = document.getElementById('treeSubtitle');
-        if (titleEl) titleEl.textContent = settings?.titleText || '🌳 ESG Digital Tree';
+        if (titleEl) titleEl.textContent = settings?.titleText || '🌳 RP Xperience Centre Digital Tree';
         if (subtitleEl) subtitleEl.textContent = settings?.subtitleText || 'Growing with every visitor\'s contribution this year';
 
         // Defaults
@@ -304,8 +375,9 @@ class TreeManager {
         const padX = settings?.paddingX ?? 30;
         const padY = settings?.paddingY ?? 15;
 
-        // --- Fixed positioning relative to viewport ---
-        this.treeTitleBox.style.position = 'fixed';
+        // --- Positioned in the tree's area (#treeContainer): the whole window in Auto, the admin's screen shape
+        // otherwise (applyScreenShape), so the title box stays inside the shape ---
+        this.treeTitleBox.style.position = 'absolute';
         this.treeTitleBox.style.margin = '0';
         this.treeTitleBox.style.boxSizing = 'border-box';
         this.treeTitleBox.style.maxWidth = 'calc(100% - 40px)';   // always leaves 20px on each side
@@ -405,9 +477,16 @@ class TreeManager {
             if (!response.ok || !data.success) return;
 
             const tree = data.parameters?.treeParameters || {};
+            // The admin chose the 3D tree for the wall: go straight to it (not from the admin's demo page).
+            if (!this.isDemoPage && tree.treeDisplayMode === '3d') {
+                window.location.replace(`/3dTree${window.location.search}`);
+                return;
+            }
             const assets = data.parameters?.visualAssets || {};
             const campaign = data.parameters?.campaignSettings || {};
             const badgeLeafStyles = data.parameters?.badgeLeafStyles || {};
+            // Long names scroll inside the leaf (one switch for both trees: 3D Tree Settings, leafNameScroll).
+            this.leafNameScroll = data.parameters?.tree3dParameters?.leafNameScroll !== false;
 
             this.ovalWidth = Number(tree.ovalWidth) || this.ovalWidth;
             this.ovalHeight = Number(tree.ovalHeight) || this.ovalHeight;
@@ -417,12 +496,20 @@ class TreeManager {
             this.leafAnimationDuration = Number(tree.leafAnimationDuration) || this.leafAnimationDuration;
             this.leafFallThreshold = Number(tree.leafFallThreshold) || this.leafFallThreshold;
             this.leafFallDuration = Number(tree.leafFallDuration) || this.leafFallDuration;
+            const showcaseSeconds = Number(tree.leafShowcaseSeconds);
+            if (tree.leafShowcaseSeconds !== undefined && tree.leafShowcaseSeconds !== '' && Number.isFinite(showcaseSeconds)) {
+                this.leafShowcaseMs = Math.min(30, Math.max(0, showcaseSeconds)) * 1000;
+            }
             this.treeStage = this.normalizeTreeStage(tree.treeStage);
+            this.treeStyle = ['natural', 'digital'].includes(tree.treeStyle) ? tree.treeStyle : 'painted';
+            this.screenSize = tree.screenSize || null; // the admin's screen shape (2D Tree Display)
+            this.applyScreenShape();
             this.showTitleBox = tree.showTitleBox !== false;
             this.activeCampaign = campaign.enabled === true ? campaign : null;
             this.applyTitleBoxVisibility();
 
             this.applyTreeStageAssets(this.treeStage);
+            await this.loadTreeImage(); // a new stage or style: its pictures, before the leaves are placed
 
             // treeTitleBox is saved under treeParameters by admin.js
             this.visualAssets = assets || {};
@@ -437,8 +524,24 @@ class TreeManager {
                 this.leafFallDuration = Math.min(Number(this.urlParams.get('duration')) || this.leafFallDuration, 10000);
             }
 
-            if (assets.treeBackground) {
-                document.body.style.backgroundImage = `url('${assets.treeBackground}')`;
+            // Use the admin-chosen background only once it has loaded, so a missing file
+            // keeps the default background from tree.css instead of a blank screen.
+            if (assets.treeBackground && assets.treeBackground !== this.appliedTreeBackground) {
+                const backgroundUrl = assets.treeBackground;
+                this.appliedTreeBackground = backgroundUrl;
+                const probe = new Image();
+                probe.onload = () => {
+                    if (this.appliedTreeBackground === backgroundUrl) {
+                        (document.getElementById('treeContainer') || document.body).style.backgroundImage = `url('${backgroundUrl}')`;
+                    }
+                };
+                probe.onerror = () => {
+                    console.warn(`Tree background not found, using the default: ${backgroundUrl}`);
+                    if (this.appliedTreeBackground === backgroundUrl) {
+                        (document.getElementById('treeContainer') || document.body).style.removeProperty('background-image');
+                    }
+                };
+                probe.src = backgroundUrl;
             }
             // Leaf override image and shared display scale
             const configuredLeafScale = Number(tree.leafDisplayScale);
@@ -494,22 +597,127 @@ class TreeManager {
         return stage >= 1 && stage <= 3;
     }
 
+    // The stage to show; its pictures are loaded by loadTreeImage.
     applyTreeStageAssets(stageNumber) {
-        const stage = this.normalizeTreeStage(stageNumber);
-        this.treeStage = stage;
-
-        if (this.treeImage) {
-            this.treeImage.src = `/assets/Tree/stage${stage}.png`;
-        }
-
-        if (this.treeImageLeaves) {
-            this.treeImageLeaves.src = `/assets/Tree/stage${stage}leaves.png`;
-        }
-
+        this.treeStage = this.normalizeTreeStage(stageNumber);
         this.updateStageLeavesVisibility();
     }
 
-    loadTreeImage() {
+    // The tree's pictures for the stage: the painted ones, or in the admin's Natural and Digital styles the
+    // pictures captured from the 3D tree (assets/Tree/2d-from-3d/<style>/, made by the 3D page itself:
+    // frontend/3dTree/capture-2d.js). The captured picture shows the 3D tree in its scene, covering the screen
+    // (tree.css body.tree-from-3d); its canopy picture, unseen, tells the leaves where the tree's foliage is
+    // (findRandomPositionInLeavesMask), as stage<N>leaves.png does for the painted tree. A style not captured
+    // yet shows the painted tree. Only what changed is loaded, and the leaves' mask is rebuilt for it.
+    async loadTreeImage() {
+        const stage = this.normalizeTreeStage(this.treeStage);
+        const captured = this.treeStyle === 'painted' ? null : await this.fetchCapturedTreePicture(this.treeStyle, stage);
+        const key = captured ? `${this.treeStyle}|${stage}|${captured.meta.capturedAt || ''}` : `painted|${stage}`;
+        if (key === this.treePictureKey) return;
+
+        let shown = false;
+        if (captured) {
+            const [picture, canopy] = await Promise.all([
+                this.loadImageWithFallback(this.treeImage, [captured.scene]),
+                this.stageHasLeaves() ? this.loadImageWithFallback(this.treeImageLeaves, [captured.canopy]) : Promise.resolve(true)
+            ]);
+            shown = picture && canopy;
+            if (!shown) console.warn(`The ${this.treeStyle} pictures for stage ${stage} could not be loaded; showing the painted tree.`);
+        }
+        document.body.classList.toggle('tree-from-3d', shown);
+        this.treePictureMeta = shown ? captured.meta : null;
+        // A soft, blurred copy of the picture fills any room it leaves on this screen (tree.css).
+        if (shown) document.body.style.setProperty('--tree-backdrop', `url('${captured.scene}')`);
+        else document.body.style.removeProperty('--tree-backdrop');
+        if (!shown) await this.loadPaintedTreeImage();
+        this.treePictureKey = shown ? key : `painted|${stage}`;
+        this.updateStageLeavesVisibility();
+        this.layoutTreePictures();
+        this.maskData = this.buildMaskCanvas();
+    }
+
+    // The tree fits any screen: a 16:9 screen of any size, the ESG Centre's 7 m x 2 m wall, a narrow or upright
+    // one. The view designed for a DESIGN_SCREEN (1917 x 1007) screen is scaled to fit inside this one, centred:
+    // a 16:9 screen shows it as designed, a wider one fits the tree to its height and shows more of the scene at
+    // the sides, a narrower one fits it to its width. The leaves, their names and the leaf area scale with it
+    // (screenScale), so the tree keeps its look. A picture captured from the 3D tree (Natural, Digital) is a wide
+    // panorama whose middle 16:9 is the designed view, so a wide screen is filled with more of the valley; any
+    // room it leaves (a screen wider than the panorama, or an upright one) shows a soft blurred copy of it.
+    layoutTreePictures() {
+        const box = this.leavesContainer?.getBoundingClientRect();
+        const width = box?.width || window.innerWidth || DESIGN_SCREEN.width;
+        const height = box?.height || window.innerHeight || DESIGN_SCREEN.height;
+        const scale = Math.min(width / DESIGN_SCREEN.width, height / DESIGN_SCREEN.height);
+        const meta = this.treePictureMeta;
+        let pictureWidth;
+        if (meta?.width && meta?.height) {
+            const designWidth = Math.min(meta.width, meta.height * DESIGN_ASPECT);
+            pictureWidth = meta.width * Math.min(width / designWidth, height / meta.height);
+        } else {
+            pictureWidth = PAINTED_TREE_WIDTH * scale;
+        }
+        this.screenScale = Math.min(4, Math.max(0.3, scale));
+        [this.treeImage, this.treeImageLeaves].forEach(image => {
+            if (image) image.style.width = `${Math.round(pictureWidth)}px`;
+        });
+        document.body.style.setProperty('--tree-screen-scale', this.screenScale.toFixed(4));
+    }
+
+    // The admin's screen shape (2D Tree Display > Screen size, treeParameters.screenSize; the server checks it:
+    // backend/features/parameters/screenSize.js). Auto: the tree fills the window, as it always has. A preset or a
+    // custom width and height: the tree is drawn in that shape, as large as the window allows, centred, black
+    // round it, for a display fed a picture of another shape (as an LED wall's controller often is). Everything
+    // in the tree (pictures, leaves, title box, Year Review, details card) is inside #treeContainer, so it all
+    // takes the shape, and layoutTreePictures fits the tree to it.
+    applyScreenShape() {
+        const stage = document.getElementById('treeContainer');
+        if (!stage) return;
+        const shape = this.screenSize;
+        const width = Number(shape?.width), height = Number(shape?.height);
+        const fixed = Boolean(shape) && shape.preset !== 'auto' && width > 0 && height > 0;
+        document.body.classList.toggle('tree-fixed-shape', fixed);
+        if (!fixed) {
+            ['position', 'left', 'top', 'width', 'height'].forEach(property => stage.style.removeProperty(property));
+            return;
+        }
+        const windowWidth = window.innerWidth || DESIGN_SCREEN.width;
+        const windowHeight = window.innerHeight || DESIGN_SCREEN.height;
+        const ratio = width / height;
+        let stageWidth = windowWidth, stageHeight = windowWidth / ratio;
+        if (stageHeight > windowHeight) {
+            stageHeight = windowHeight;
+            stageWidth = windowHeight * ratio;
+        }
+        Object.assign(stage.style, {
+            position: 'absolute',
+            left: `${Math.round((windowWidth - stageWidth) / 2)}px`,
+            top: `${Math.round((windowHeight - stageHeight) / 2)}px`,
+            width: `${Math.round(stageWidth)}px`,
+            height: `${Math.round(stageHeight)}px`
+        });
+    }
+
+    // A captured style's pictures for a stage, or null if that stage has not been captured yet.
+    async fetchCapturedTreePicture(style, stage) {
+        const base = `/assets/Tree/2d-from-3d/${style}/stage${stage}`;
+        try {
+            const response = await fetch(`${base}.json`, { cache: 'no-store' });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const meta = await response.json();
+            if (!Number(meta?.width) || !Number(meta?.height)) throw new Error('no picture size');
+            const version = encodeURIComponent(meta.capturedAt || '');
+            return { scene: `${base}.jpg?v=${version}`, canopy: `${base}-canopy.png?v=${version}`, meta };
+        } catch (error) {
+            const missing = `${style}|${stage}`;
+            if (!this.missingTreePictures.has(missing)) {
+                this.missingTreePictures.add(missing);
+                console.warn(`The ${style} pictures for stage ${stage} have not been captured yet (admin: 2D Tree Display, Capture from the 3D tree); showing the painted tree.`, error.message);
+            }
+            return null;
+        }
+    }
+
+    loadPaintedTreeImage() {
         return new Promise((resolve) => {
             const stage = this.normalizeTreeStage(this.treeStage);
             const trunkSources = [
@@ -873,6 +1081,13 @@ class TreeManager {
         document.addEventListener('keydown', (event) => {
             if (event.key === 'Escape') this.closeLeafDetail();
         });
+
+        // A click away from the leaves and the card closes it (a leaf's own click opens its card instead).
+        document.addEventListener('click', (event) => {
+            if (!this.leafDetailCard?.classList.contains('active')) return;
+            if (this.leafDetailCard.contains(event.target) || event.target.closest?.('.leaf')) return;
+            this.closeLeafDetail();
+        });
     }
 
     bindDemoControls() {
@@ -938,7 +1153,7 @@ class TreeManager {
         if (!await this.prepareDemoPlayback('landing')) return;
 
         this.manualDemoFallActive = false;
-        this.enableDemoMotion(7600);
+        this.enableDemoMotion(8600);
         this.closeYearReviewBook();
         this.isReviewMode = false;
         this.selectedYear = this.currentYear;
@@ -961,7 +1176,7 @@ class TreeManager {
         this.updateTreeHeading();
         this.renderYearReviewBook();
         this.refreshTree();
-        this.resumeLiveRefreshAfter(7600);
+        this.resumeLiveRefreshAfter(8600);
     }
 
     async playDemoFalling() {
@@ -1033,8 +1248,11 @@ class TreeManager {
         });
     }
 
-    openLeafDetail(visitor, badgeProfile) {
+    // Opens the clicked leaf's details card beside the leaf (to its right when the leaf is on the left half
+    // of the tree, otherwise to its left), kept on screen. As on the 3D tree (frontend/3dTree/leaf-detail.js).
+    openLeafDetail(visitor, badgeProfile, leafElement) {
         if (!this.leafDetailCard) return;
+        this.selectedLeafKey = leafElement?.dataset?.leafKey || null;
 
         const badgeName = visitor.badgeName || badgeProfile.label || 'Feedback Contributor';
         const snippet = visitor.pledgeSnippet || 'No pledge snippet was shared for this leaf.';
@@ -1055,13 +1273,48 @@ class TreeManager {
         if (this.leafDetailSnippet) {
             this.leafDetailSnippet.textContent = snippet;
         }
+        // <Jun Kai start>
+        // a leaf kept after the Visitor Data Archive has no pledge to show: the month and year of the visit and one line
+        if (visitor.archived) {
+            const visited = new Date(visitor.created_at);
+            if (this.leafDetailDate) {
+                this.leafDetailDate.textContent = Number.isNaN(visited.getTime())
+                    ? 'Date unavailable'
+                    : visited.toLocaleDateString('en-SG', { month: 'long', year: 'numeric', timeZone: 'Asia/Singapore' });
+            }
+            if (this.leafDetailSnippet) {
+                this.leafDetailSnippet.textContent = "This visitor's details were archived.";
+            }
+        }
+        // <Jun Kai end>
 
+        if (leafElement) this.placeLeafDetail(leafElement.getBoundingClientRect());
         this.leafDetailCard.classList.add('active');
         this.leafDetailCard.setAttribute('aria-hidden', 'false');
     }
 
+    placeLeafDetail(leafRect) {
+        const card = this.leafDetailCard;
+        const room = (card.offsetParent || document.body).getBoundingClientRect();
+        const width = card.offsetWidth;
+        const height = card.offsetHeight;
+        const gap = 18;
+        const margin = 16;
+        const leafX = leafRect.left + (leafRect.width / 2) - room.left;
+        const leafY = leafRect.top + (leafRect.height / 2) - room.top;
+        let left = leafX < room.width / 2
+            ? leafRect.right - room.left + gap
+            : leafRect.left - room.left - gap - width;
+        left = Math.min(room.width - width - margin, Math.max(margin, left));
+        const top = Math.min(room.height - height - margin, Math.max(margin, leafY - (height / 2)));
+        card.style.right = 'auto';
+        card.style.left = `${Math.round(left)}px`;
+        card.style.top = `${Math.round(top)}px`;
+    }
+
     closeLeafDetail() {
         if (!this.leafDetailCard) return;
+        this.selectedLeafKey = null;
         this.leafDetailCard.classList.remove('active');
         this.leafDetailCard.setAttribute('aria-hidden', 'true');
     }
@@ -1160,7 +1413,7 @@ class TreeManager {
     updateTreeHeading() {
         if ((this.demoFallEnabled || this.manualDemoFallActive) && !this.isReviewMode) {
             if (this.treeTitle) {
-                this.treeTitle.textContent = 'ESG Digital Tree - Leaf Fall Demo';
+                this.treeTitle.textContent = 'RP Xperience Centre Digital Tree - Leaf Fall Demo';
             }
             if (this.treeSubtitle) {
                 this.treeSubtitle.textContent = `${this.visitors.length} demo leaves will fall. No live feedback data is changed.`;
@@ -1169,12 +1422,12 @@ class TreeManager {
         }
 
         const settings = this.visualAssets?.treeTitleBox;
-        const configTitle = settings?.titleText || '🌳 ESG Digital Tree';
+        const configTitle = settings?.titleText || '🌳 RP Xperience Centre Digital Tree';
         const configSubtitle = settings?.subtitleText || `Growing with every visitor's contribution in ${this.currentYear}`;
 
         if (this.treeTitle) {
             this.treeTitle.textContent = this.isReviewMode
-                ? `${this.selectedYear} ESG Tree Review`
+                ? `${this.selectedYear} RP Xperience Centre Tree Review`
                 : configTitle;
         }
 
@@ -1196,7 +1449,11 @@ class TreeManager {
         const leafCount = Number(page.leafCount) || 0;
 
         this.bookYear.textContent = page.year;
-        this.bookCount.textContent = `${leafCount} ${leafCount === 1 ? 'leaf' : 'leaves'}`;
+        // <Jun Kai start>
+        // archived leaves are in the count but no longer on that year's tree, so the book says how many
+        const archivedLeaves = Number(page.archivedLeafCount) || 0;
+        this.bookCount.textContent = `${leafCount} ${leafCount === 1 ? 'leaf' : 'leaves'}${archivedLeaves ? ` · ${archivedLeaves} archived` : ''}`;
+        // <Jun Kai end>
         this.reviewTreePreview.innerHTML = '';
 
         const dotCount = Math.min(leafCount, 90);
@@ -1309,6 +1566,33 @@ class TreeManager {
         const containerRect = this.leavesContainer.getBoundingClientRect();
         const ovalArea = this.calculateOvalArea(treeRect, containerRect);
 
+        // Leaves keep their spot across refreshes; a new layout (resize, growth stage) places them again.
+        const layoutKey = [
+            Math.round(containerRect.width),
+            Math.round(containerRect.height),
+            Math.round(treeRect.width),
+            this.treeImageLeaves?.src || ''
+        ].join('|');
+        if (layoutKey !== this.leafLayoutKey) {
+            this.leafPositions.clear();
+            this.leafLayoutKey = layoutKey;
+        }
+        // Leaves stay clear of the title box: a leaf the title box now covers (the admin moved or resized
+        // it) gets a new spot, and new leaves are never placed under it (leafTouchesTitle).
+        this.titleKeepOut = this.getTitleKeepOut();
+        for (const [key, spot] of this.leafPositions) {
+            if (this.leafTouchesTitle(spot.x, spot.y, spot.size)) this.leafPositions.delete(key);
+        }
+        // Leaves that already have a spot are registered first, so a new leaf avoids all of them.
+        this.placedLeafCircles = leafCycle.visibleVisitors
+            .map((visitor, index) => this.leafPositions.get(this.getLeafKey(visitor, index)))
+            .filter(Boolean)
+            .map(spot => ({
+                cx: spot.x + (spot.size / 2),
+                cy: spot.y + (spot.size / 2),
+                r: spot.size * this.leafSpacingRadius
+            }));
+
         if (this.debugOval) {
             this.updateOvalOverlay(ovalArea);
         } else {
@@ -1377,17 +1661,29 @@ class TreeManager {
         const retainedVisitors = visitors.slice(overflowCount);
         const visibleVisitors = [...fallingVisitors, ...retainedVisitors];
 
+        // First in, first out, as on the 3D tree: a new leaf joins the tree first, then the oldest falls.
+        // While new leaves are still on their way (waiting at the bottom middle or flying up), as many of
+        // the oldest leaves stay on the tree; each landing lets the oldest one go (releaseHeldLeafFalls).
+        // With no new leaf coming (the admin lowered Maximum Visible Leaves), the extra leaves fall at once.
+        const stillLanding = retainedVisitors.filter((visitor, index) =>
+            this.pendingLandingLeafKeys.has(this.getLeafKey(visitor, fallingVisitors.length + index))
+        ).length;
+        const releasedCount = Math.max(0, fallingVisitors.length - stillLanding);
+        const releasedVisitors = fallingVisitors.slice(0, releasedCount);
+        const releasedOverflow = clearedOverflow + releasedCount;
+
         return {
             visibleVisitors,
-            shouldFallAway: fallingVisitors.length > 0,
-            cycleNumber: overflowCount,
+            shouldFallAway: releasedCount > 0,
+            cycleNumber: releasedOverflow,
             threshold,
-            overflowCount,
+            overflowCount: releasedOverflow,
+            heldFallCount: fallingVisitors.length - releasedCount,
             fallingLeafKeys: new Set(
-                fallingVisitors.map((visitor, index) => this.getLeafKey(visitor, clearedOverflow + index))
+                releasedVisitors.map((visitor, index) => this.getLeafKey(visitor, clearedOverflow + index))
             ),
-            fallingLeafOrder: this.createFallingLeafOrder(fallingVisitors, clearedOverflow),
-            fallingLeafCount: fallingVisitors.length,
+            fallingLeafOrder: this.createFallingLeafOrder(releasedVisitors, clearedOverflow),
+            fallingLeafCount: releasedCount,
             isDemoCycle: false
         };
     }
@@ -1449,6 +1745,19 @@ class TreeManager {
     }
 
     calculateOvalArea(treeRect, containerRect) {
+        // A picture captured from the 3D tree: the area is its canopy's box (stage<N>.json).
+        const meta = this.treePictureMeta;
+        if (meta?.canopy && meta.width && meta.height && treeRect.width && treeRect.height) {
+            const scaleX = treeRect.width / meta.width;
+            const scaleY = treeRect.height / meta.height;
+            return {
+                x: treeRect.left - containerRect.left + (meta.canopy.x * scaleX),
+                y: treeRect.top - containerRect.top + (meta.canopy.y * scaleY),
+                width: meta.canopy.width * scaleX,
+                height: meta.canopy.height * scaleY
+            };
+        }
+
         const centerX =
             treeRect.left - containerRect.left + (treeRect.width / 2);
 
@@ -1456,11 +1765,12 @@ class TreeManager {
         const centerY =
             treeRect.top - containerRect.top + (treeRect.height * 0.32);
 
+        const s = this.screenScale || 1; // the admin's leaf area is for the design screen
         return {
-            x: centerX - (this.ovalWidth / 2),
-            y: centerY - (this.ovalHeight / 2) + this.ovalTopOffset,
-            width: this.ovalWidth,
-            height: this.ovalHeight
+            x: centerX - (this.ovalWidth * s / 2),
+            y: centerY - (this.ovalHeight * s / 2) + this.ovalTopOffset * s,
+            width: this.ovalWidth * s,
+            height: this.ovalHeight * s
         };
     }
 
@@ -1561,10 +1871,19 @@ class TreeManager {
 
         const scaleX = w / displayW;
         const scaleY = h / displayH;
+        const radius = leafSize * this.leafSpacingRadius;
+        let best = null;
 
         for (let i = 0; i < 900; i++) {
             const rx = random() * displayW;
             const ry = random() * displayH;
+
+            // Never under the title box.
+            if (this.leafTouchesTitle(left + rx - leafSize / 2, top + ry - leafSize / 2, leafSize)) continue;
+
+            // Cheap overlap test first; only read mask pixels for a spot that beats the best so far.
+            const overlap = this.leafOverlapAt(left + rx, top + ry, radius);
+            if (best && overlap >= best.overlap) continue;
 
             const nx = Math.floor(rx * scaleX);
             const ny = Math.floor(ry * scaleY);
@@ -1574,14 +1893,72 @@ class TreeManager {
 
             // Alpha plus neighbour checks keep leaves anchored in the canopy, away from loose edges.
             if (alpha > 55 && this.maskPixelHasLeafSupport(ctx, nx, ny, w, h, leafSize, scaleX, scaleY)) {
-                return {
+                best = {
                     x: left + rx - leafSize / 2,
-                    y: top + ry - leafSize / 2
+                    y: top + ry - leafSize / 2,
+                    overlap
                 };
+                if (overlap === 0) break;
             }
         }
 
-        return null;
+        // A full canopy has no clear spot left; the least crowded one is used instead.
+        return best ? { x: best.x, y: best.y } : null;
+    }
+
+    // The title box's area on the leaves' layer, with a margin: no leaf sits there, wherever the admin puts
+    // the title box (Tree Title Box position) or however big it is. Null when the title box is hidden.
+    getTitleKeepOut() {
+        const title = this.treeTitleBox;
+        if (!title || !this.leavesContainer) return null;
+        const style = getComputedStyle(title);
+        if (style.display === 'none' || style.visibility === 'hidden') return null;
+        const rect = title.getBoundingClientRect();
+        if (!rect.width || !rect.height) return null;
+        const container = this.leavesContainer.getBoundingClientRect();
+        const margin = 14;
+        return {
+            left: rect.left - container.left - margin,
+            top: rect.top - container.top - margin,
+            right: rect.right - container.left + margin,
+            bottom: rect.bottom - container.top + margin
+        };
+    }
+
+    // Whether a leaf with its top-left corner at (x, y) on the leaves' layer would touch the title box.
+    leafTouchesTitle(x, y, leafSize, keepOut = this.titleKeepOut) {
+        if (!keepOut) return false;
+        return x < keepOut.right && x + leafSize > keepOut.left && y < keepOut.bottom && y + leafSize > keepOut.top;
+    }
+
+    // How deep a leaf centred at (cx, cy) would overlap the leaves already placed; 0 means clear.
+    leafOverlapAt(cx, cy, radius) {
+        let overlap = 0;
+        for (const other of this.placedLeafCircles) {
+            const gap = Math.hypot(cx - other.cx, cy - other.cy) - (radius + other.r);
+            if (gap < 0) overlap = Math.max(overlap, -gap);
+        }
+        return overlap;
+    }
+
+    // A leaf keeps the spot it was first given, so refreshes never move it.
+    getLeafPosition(leafKey, leafSize, visitorSeed, ovalArea) {
+        const saved = this.leafPositions.get(leafKey);
+        if (saved) {
+            const shift = (saved.size - leafSize) / 2;
+            return { x: saved.x + shift, y: saved.y + shift };
+        }
+
+        const position = this.findRandomPositionInLeavesMask(leafSize, `${visitorSeed}|position`)
+            || this.findRandomPositionInOval(ovalArea, leafSize, `${visitorSeed}|fallback`);
+
+        this.leafPositions.set(leafKey, { x: position.x, y: position.y, size: leafSize });
+        this.placedLeafCircles.push({
+            cx: position.x + (leafSize / 2),
+            cy: position.y + (leafSize / 2),
+            r: leafSize * this.leafSpacingRadius
+        });
+        return position;
     }
 
     // ==================== LEAF CREATION ====================
@@ -1611,12 +1988,15 @@ class TreeManager {
         const now = new Date();
         const diffInMinutes = (now - visitTime) / 60000;
 
-        const isWithinTintWindow = !Number.isNaN(visitTime.getTime())
-            && (Date.now() - visitTime.getTime()) >= 0
-            && (Date.now() - visitTime.getTime()) <= this.badgeTintDurationMs;
-
-        if (!isVip && isWithinTintWindow) {
+        // Every leaf (not a VIP's) shows its badge's colour from the admin's Badge Leaf Styling: a light
+        // shade while new (the tint window, "A leaf stays light for", 24 hours by default), then it fades
+        // smoothly to a darker shade of it over TINT_FADE_MS (playLeafTintFade), as on the 3D tree. A leaf
+        // past its fade is dark at once (leaf-tint-aged).
+        const darkFrom = Number.isNaN(visitTime.getTime()) ? null : visitTime.getTime() + this.badgeTintDurationMs;
+        const tintFadeDone = darkFrom === null || Date.now() >= darkFrom + TINT_FADE_MS;
+        if (!isVip) {
             leaf.classList.add('leaf-tinted');
+            leaf.classList.toggle('leaf-tint-aged', tintFadeDone);
             leaf.style.setProperty('--leaf-badge-color', badgeLeafColor);
         }
         
@@ -1658,6 +2038,11 @@ class TreeManager {
         leaf.style.opacity = String(this.leafOpacity);
         leaf.style.setProperty('--leaf-visible-opacity', String(this.leafOpacity));
         leaf.style.setProperty('--leaf-appear-duration', `${this.leafAnimationDuration}ms`);
+        // The tree is rebuilt on every refresh; only leaves new to this page should pop in.
+        if (this.renderedLeafKeys.has(leafKey)) {
+            leaf.style.setProperty('--leaf-appear-duration', '0ms');
+        }
+        this.renderedLeafKeys.add(leafKey);
         leaf.style.setProperty('--leaf-fall-duration', `${this.leafFallDuration}ms`);
         const windDirection = seededRandom() > 0.5 ? 1 : -1;
         const fallOrder = this.activeLeafCycle?.fallingLeafOrder?.get(leafKey);
@@ -1706,7 +2091,7 @@ class TreeManager {
         const scale = isVip
             ? (typeof this.vipLeafDisplayScale === 'number' ? this.vipLeafDisplayScale : this.leafDisplayScale)
             : (typeof this.leafDisplayScale === 'number' ? this.leafDisplayScale : 1);
-        const leafSize = Math.max(8, Math.round(baseLeafSize * scale));
+        const leafSize = Math.max(8, Math.round(baseLeafSize * scale * (this.screenScale || 1)));
         leaf.style.width = `${leafSize}px`;
         leaf.style.height = `${leafSize}px`;
         leaf.style.setProperty('--leaf-size', `${leafSize}px`);
@@ -1715,13 +2100,8 @@ class TreeManager {
             leaf.dataset.leafGlowTimestamp = glowTimestamp.toISOString();
         }
 
-        // 1) Place within mask
-        let position = this.findRandomPositionInLeavesMask(leafSize, `${visitorSeed}|position`);
-
-        // 2) Fallback to oval
-        if (!position) {
-            position = this.findRandomPositionInOval(ovalArea, leafSize, `${visitorSeed}|fallback`);
-        }
+        // Inside the canopy mask (oval as fallback), clear of the other leaves.
+        const position = this.getLeafPosition(leafKey, leafSize, visitorSeed, ovalArea);
 
         leaf.style.left = `${position.x}px`;
         leaf.style.top = `${position.y}px`;
@@ -1737,130 +2117,550 @@ class TreeManager {
         leaf.style.setProperty('--leaf-image-scale-x', useFlippedOverride ? '-1' : '1');
         leaf.style.backgroundImage = 'none';
 
+        // Every leaf joins the tree at its own angle: upright, sideways, upside down or anything between.
+        // Seeded from the feedback, so a leaf keeps its angle across refreshes.
+        const leafAngle = Math.round(this.createSeededRandom(`${visitorSeed}|angle`)() * 360) - 180;
+        leaf.style.setProperty('--leaf-angle', `${leafAngle}deg`);
+
         const isFallingLeaf = this.activeLeafCycle?.fallingLeafKeys?.has(leafKey) === true;
-        if (this.pendingLandingLeafKeys.has(leafKey) && !isFallingLeaf) {
+        const isLanding = this.pendingLandingLeafKeys.has(leafKey) && !isFallingLeaf;
+        // Each leaf keeps one glow rhythm, so the pulse carries on smoothly through a refresh.
+        // A leaf still in flight gets its rhythm when it lands.
+        if (!isLanding && !this.leafGlowEpochs.has(leafKey)) {
+            this.leafGlowEpochs.set(leafKey, this.animationClock());
+        }
+        if (this.leafGlowEpochs.has(leafKey)) {
+            leaf.style.setProperty('--leaf-glow-delay', `${Math.round(this.leafGlowEpochs.get(leafKey) - this.animationClock())}ms`);
+        }
+        if (isLanding) {
             this.configureLeafLandingAnimation(leaf, leafKey, position, leafSize, seededRandom, index, visitor);
         }
 
         const nameElement = document.createElement('div');
         nameElement.className = 'leaf-name';
-        nameElement.textContent = visitor.name || 'Anonymous';
-        const nameFontSize = this.getLeafNameFontSize(visitor.name || 'Anonymous', leafSize);
-        nameElement.style.setProperty('--leaf-name-font-size', `${nameFontSize}px`);
-        nameElement.style.fontSize = `${nameFontSize}px`;
+        // The name follows the leaf photo actually shown (the admin-chosen image too) and its mirroring.
+        let shownSide = null;
+        if (/LeftLeaf/i.test(leafImageUrl)) shownSide = 'LeftLeaf.png';
+        if (/RightLeaf/i.test(leafImageUrl)) shownSide = 'RightLeaf.png';
+        if (shownSide && useFlippedOverride) {
+            shownSide = shownSide === 'LeftLeaf.png' ? 'RightLeaf.png' : 'LeftLeaf.png';
+        }
+        const nameLayout = this.getLeafNameLayout(visitor.name || 'Anonymous', leafSize, isVip, shownSide);
+        nameElement.textContent = nameLayout.text;
+        // The name turns with the leaf so it stays along the midrib, flipped half a turn when it would
+        // otherwise read upside down (the text box is centred, so it still fits the blade).
+        let nameAngle = (((nameLayout.angle + leafAngle) % 360) + 360) % 360;
+        if (nameAngle > 180) nameAngle -= 360;
+        if (nameAngle > 90) nameAngle -= 180;
+        if (nameAngle <= -90) nameAngle += 180;
+        nameElement.style.setProperty('--leaf-name-angle', `${nameAngle.toFixed(1)}deg`);
+        nameElement.style.setProperty('--leaf-name-left', `${nameLayout.left}%`);
+        nameElement.style.setProperty('--leaf-name-top', `${nameLayout.top}%`);
+        nameElement.style.setProperty('--leaf-name-width', `${nameLayout.width}px`);
+        nameElement.style.setProperty('--leaf-name-height', `${nameLayout.height}px`);
+        nameElement.style.setProperty('--leaf-name-lines', String(nameLayout.lines));
+        nameElement.style.setProperty('--leaf-name-font-size', `${nameLayout.fontSize}px`);
+        nameElement.style.fontSize = `${nameLayout.fontSize}px`;
+        if (this.leafNameScroll !== false && nameLayout.scroll) this.makeLeafNameScroll(nameElement, nameLayout);
         leaf.appendChild(nameElement);
 
         leaf.addEventListener('click', (event) => {
             event.stopPropagation();
-            this.openLeafDetail(visitor, badgeProfile);
+            this.openLeafDetail(visitor, badgeProfile, leaf);
         });
         leaf.addEventListener('keydown', (event) => {
             if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault();
-                this.openLeafDetail(visitor, badgeProfile);
+                this.openLeafDetail(visitor, badgeProfile, leaf);
             }
         });
 
         this.leavesContainer.appendChild(leaf);
+        // A refresh right after a landing carries on the glow fade-in where it was.
+        if (!isLanding) this.playLeafGlowFadeIn(leaf, leafKey);
+        if (!isVip && !tintFadeDone) this.playLeafTintFade(leaf, darkFrom);
+    }
+
+    // A new leaf's light shade fades smoothly into the dark shade of its badge colour: from the end of its
+    // light time (darkFrom) over TINT_FADE_MS, holding the light shade until then. Timed by the clock, so the
+    // leaves rebuilt at every refresh carry on the fade where it was. With the Web Animations API, so the
+    // leaf's own CSS animations (appearing, flying in, falling) neither stop it nor are stopped by it.
+    playLeafTintFade(leaf, darkFrom) {
+        if (typeof leaf.animate !== 'function') {
+            leaf.classList.toggle('leaf-tint-aged', Date.now() >= darkFrom); // no fade: the shade changes at its time
+            return;
+        }
+        try {
+            leaf.animate(
+                [{ filter: LEAF_TINT_LIGHT_FILTER }, { filter: LEAF_TINT_DARK_FILTER }],
+                {
+                    pseudoElement: '::before',
+                    duration: TINT_FADE_MS,
+                    delay: darkFrom - Date.now(), // below 0 when the fade has begun: it carries on from there
+                    easing: 'ease-in-out',
+                    fill: 'both'
+                }
+            );
+        } catch (error) {
+            console.warn('Leaf colour fade unavailable; the shade changes at its time.', error);
+            leaf.classList.toggle('leaf-tint-aged', Date.now() >= darkFrom);
+        }
+    }
+
+    // Plans the arrival of a new leaf. It first appears at the bottom middle of the wall at twice its
+    // size and stays there for "Time at the bottom middle" (leafShowcaseMs, 12 seconds by default),
+    // drifting gently so the visitor can find it; then it flies to its spot on the canopy. Several new
+    // leaves take turns at the bottom middle: each appears once the one before has flown clear. The
+    // flight starts fully on screen and weaves left and right in a zigzag that narrows as it rises,
+    // leaning into each turn. The path is sampled by distance travelled and played with one easing over
+    // the whole flight, so the speed changes smoothly from start to landing. (The demo page's landing
+    // flies at once.)
+    planLeafLandingFlight(position, leafSize, random, index, visitor) {
+        const windDirection = random() > 0.5 ? 1 : -1;
+        const isDemo = visitor?.isDemoLanding === true;
+        const duration = isDemo
+            ? Math.round(6600 + random() * 500)
+            : Math.round(5600 + random() * 900);
+        const hold = isDemo ? 0 : Math.max(0, Number(this.leafShowcaseMs) || 0);
+        let delay = isDemo
+            ? 80
+            : Math.min(index * 70 + Math.round(random() * 120), 640);
+        if (hold > 0) {
+            // Waits its turn at the bottom middle.
+            const now = this.animationClock();
+            delay = Math.max(delay, Math.round((this.landingStageFreeAt || 0) - now));
+            this.landingStageFreeAt = now + delay + hold + LANDING_STAGE_CLEAR_MS;
+        }
+        const containerRect = this.leavesContainer?.getBoundingClientRect();
+        const width = containerRect?.width || window.innerWidth || 1920;
+        const height = containerRect?.height || window.innerHeight || 1080;
+        const finalCenterX = (position?.x || 0) + (leafSize / 2);
+        const finalCenterY = (position?.y || 0) + (leafSize / 2);
+
+        // Every new leaf rises from the bottom middle at twice its size and shrinks to its real size on the tree.
+        const startScale = 2;
+        const halfSizeAt = (scale) => ((leafSize * scale) / 2) + 16;
+        // Exactly the bottom middle when it waits there; a little to either side when it flies at once.
+        const startJitter = (random() - 0.5) * 0.2;
+        const startCenterX = width * (0.5 + (hold > 0 ? 0 : startJitter));
+        let startCenterY = height - halfSizeAt(startScale) - (height * 0.04);
+        // With the title box at the bottom of the screen, the new leaf shows just above it, not under it.
+        const keepOut = this.getTitleKeepOut();
+        const startHalf = halfSizeAt(startScale);
+        if (keepOut && startCenterX + startHalf > keepOut.left && startCenterX - startHalf < keepOut.right
+            && startCenterY + startHalf > keepOut.top && startCenterY - startHalf < keepOut.bottom) {
+            startCenterY = Math.max(startHalf, keepOut.top - startHalf - 8);
+        }
+        const swings = 2.2 + random() * 1.3;
+        const amplitude = Math.min(Math.max(width * 0.16, 180), 460) * (0.75 + random() * 0.5);
+        const bank = 12 + random() * 12;
+        const yaw = windDirection * (24 + random() * 26);
+        const opacityValue = Number(this.leafOpacity);
+        const visibleOpacity = Number.isFinite(opacityValue) ? opacityValue : 0.9;
+        const smoothstep = (edge0, edge1, value) => {
+            const k = Math.min(1, Math.max(0, (value - edge0) / (edge1 - edge0)));
+            return k * k * (3 - (2 * k));
+        };
+        // Shrinks gradually across the whole flight: holds 2x for a moment at the start,
+        // then eases down and settles softly at 1x as it reaches its spot.
+        const scaleAt = (s) => 1 + ((startScale - 1) * (1 - smoothstep(0, 1, s)));
+
+        // Offset from the leaf's final spot at progress s (0 = start, 1 = landed).
+        const pathAt = (s) => {
+            const envelope = (1 - s) ** 1.1;
+            const weave = windDirection * amplitude * Math.sin(Math.PI * swings * s) * envelope;
+            let centerX = startCenterX + ((finalCenterX - startCenterX) * s) + weave;
+            // No overshoot: the leaf glides straight into its spot and slows to a stop there.
+            let centerY = startCenterY + ((finalCenterY - startCenterY) * s);
+
+            // Keep the leaf inside the screen; release the clamp at the very end so it lands exactly.
+            const margin = halfSizeAt(scaleAt(s));
+            const release = smoothstep(0.85, 1, s);
+            const clampedX = Math.min(width - margin, Math.max(margin, centerX));
+            const clampedY = Math.min(height - margin, centerY);
+            centerX = clampedX + ((centerX - clampedX) * release);
+            centerY = clampedY + ((centerY - clampedY) * release);
+            return [centerX - finalCenterX, centerY - finalCenterY];
+        };
+
+        const tableSize = 400;
+        const arcLengths = [0];
+        let previousPoint = pathAt(0);
+        for (let i = 1; i <= tableSize; i += 1) {
+            const point = pathAt(i / tableSize);
+            arcLengths.push(arcLengths[i - 1] + Math.hypot(point[0] - previousPoint[0], point[1] - previousPoint[1]));
+            previousPoint = point;
+        }
+        const totalLength = arcLengths[tableSize] || 1;
+        const progressAtDistance = (fraction) => {
+            const target = fraction * totalLength;
+            let i = 1;
+            while (i < tableSize && arcLengths[i] < target) i += 1;
+            const segment = arcLengths[i] - arcLengths[i - 1];
+            return (i - 1 + (segment > 0 ? (target - arcLengths[i - 1]) / segment : 0)) / tableSize;
+        };
+
+        // One animation plays the time at the bottom middle and then the flight, so the flight's easing
+        // (FLIGHT_EASING) is worked into its keyframes and the animation itself runs evenly.
+        const total = hold + duration;
+        const holdShare = hold / total;
+        const keyframes = [];
+
+        if (hold > 0) {
+            // At the bottom middle: fading in as it rises a little into place, then drifting gently. The
+            // drift calms to nothing before take-off, so the flight starts from exactly here.
+            const [startX, startY] = pathAt(0);
+            const holdSteps = Math.max(24, Math.round(hold / 120));
+            const appearMs = Math.min(900, hold / 2);
+            const settleMs = Math.max(1, Math.min(1200, hold / 2));
+            const drift = random() * Math.PI * 2;
+            for (let step = 0; step < holdSteps; step += 1) {
+                const ms = (step / holdSteps) * hold;
+                const appear = smoothstep(0, appearMs, ms);
+                const idle = smoothstep(0, settleMs, ms) * (1 - smoothstep(hold - settleMs, hold, ms));
+                const seconds = ms / 1000;
+                const x = startX + (5 * Math.sin((seconds * 1.1) + (drift * 2)) * idle);
+                const y = startY + (7 * Math.sin((seconds * 1.9) + drift) * idle) + (18 * (1 - appear));
+                const rotate = 3 * Math.sin((seconds * 1.5) + drift) * idle;
+                keyframes.push({
+                    offset: Number((ms / total).toFixed(5)),
+                    opacity: Number((visibleOpacity * appear).toFixed(3)),
+                    transform: `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, 0px) rotate(${rotate.toFixed(2)}deg) rotateY(0deg) scale(${(startScale * (0.9 + (0.1 * appear))).toFixed(4)})`
+                });
+            }
+        }
+
+        const steps = 120;
+        for (let step = 0; step <= steps; step += 1) {
+            const time = step / steps;
+            const t = flightEase(time);
+            const s = progressAtDistance(t);
+            const [x, y] = pathAt(s);
+            const envelope = (1 - s) ** 1.1;
+            // Lean into the direction of travel, and turn the leaf face as it swings. After the time at
+            // the bottom middle the leaf takes off level and leans in gently.
+            const lean = hold > 0 ? smoothstep(0, 0.06, t) : 1;
+            const rotate = windDirection * bank * Math.cos(Math.PI * swings * s) * envelope * lean;
+            const rotateY = yaw * Math.sin(Math.PI * swings * s) * envelope;
+            const opacity = hold > 0 ? visibleOpacity : visibleOpacity * smoothstep(0, 0.05, t);
+
+            keyframes.push({
+                offset: Number((holdShare + (time * (1 - holdShare))).toFixed(5)),
+                opacity: Number(opacity.toFixed(3)),
+                transform: step === steps
+                    ? 'translate3d(0px, 0px, 0px) rotate(0deg) rotateY(0deg) scale(1)'
+                    : `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, 0px) rotate(${rotate.toFixed(2)}deg) rotateY(${rotateY.toFixed(2)}deg) scale(${scaleAt(s).toFixed(4)})`
+            });
+        }
+        keyframes[keyframes.length - 1].offset = 1;
+
+        return {
+            isDemo,
+            duration: total,         // the time at the bottom middle and the flight
+            flightDuration: duration,
+            hold,
+            delay,
+            keyframes,
+            yaw: Math.round(yaw),
+            flutterDuration: Math.round(700 + random() * 400)
+        };
+    }
+
+    // The page's animation clock (the time the browser plays animations by), so flights and glow
+    // fades can be pinned to fixed start times and carry on unchanged when the tree is rebuilt.
+    animationClock() {
+        const now = document.timeline?.currentTime;
+        return typeof now === 'number' ? now : performance.now();
+    }
+
+    // The leaf photo's flutter during a flight: a gentle sway that eases in after take-off and
+    // calms to exactly nothing at the landing, so the leaf comes to rest without a snap.
+    planLeafFlutterKeyframes(flight, flip) {
+        const flightDuration = flight.flightDuration ?? flight.duration; // the flight only, not the time before it
+        const steps = Math.max(60, Math.round(flightDuration / 33));
+        const period = Math.max(600, flight.flutterDuration * 2);
+        const swayY = Math.min(Math.abs(flight.yaw) * 0.45, 22) * Math.sign(flight.yaw || 1);
+        const keyframes = [];
+        for (let step = 0; step <= steps; step += 1) {
+            const t = step / steps;
+            const easeIn = Math.min(1, t / 0.08);
+            const envelope = (easeIn * easeIn * (3 - (2 * easeIn))) * ((1 - t) ** 1.6);
+            const phase = (2 * Math.PI * t * flightDuration) / period;
+            const rotateY = swayY * Math.sin(phase) * envelope;
+            const rotateZ = 4 * Math.sin((phase * 0.5) + 0.8) * envelope;
+            keyframes.push({
+                offset: t,
+                transform: `scaleX(${flip}) rotateY(${rotateY.toFixed(2)}deg) rotateZ(${rotateZ.toFixed(2)}deg)`
+            });
+        }
+        return keyframes;
+    }
+
+    // Fades a just-landed leaf's neon glow in, ending exactly where the glow pulse begins.
+    // Resumed part-way when the tree refreshes during the fade.
+    playLeafGlowFadeIn(leaf, leafKey) {
+        const pulseStartsAt = this.leafGlowEpochs.get(leafKey);
+        if (pulseStartsAt === undefined || typeof leaf.animate !== 'function') return;
+        const fadeStartsAt = pulseStartsAt - LEAF_GLOW_FADE_MS;
+        const elapsed = this.animationClock() - fadeStartsAt;
+        if (elapsed < 0 || elapsed >= LEAF_GLOW_FADE_MS || !leaf.classList.contains('leaf-neon-glow')) return;
+
+        const opacityValue = Number(this.leafOpacity);
+        const visibleOpacity = Number.isFinite(opacityValue) ? opacityValue : 0.9;
+        // The first frame of the leafNeonPulse keyframes in tree.css.
+        const glow = 'drop-shadow(0 0 6px rgba(57, 255, 20, 0.85)) drop-shadow(0 0 18px rgba(57, 255, 20, 0.58))';
+        const timing = { duration: LEAF_GLOW_FADE_MS, easing: 'ease-in-out' };
+        const fade = leaf.animate([
+            { filter: 'drop-shadow(0 8px 12px rgba(12, 50, 27, 0.28)) drop-shadow(0 0 0 rgba(57, 255, 20, 0))', opacity: visibleOpacity },
+            { filter: glow, opacity: 0.82 }
+        ], timing);
+        fade.startTime = fadeStartsAt;
+        try {
+            const halo = leaf.animate([
+                { filter: glow, opacity: 0 },
+                { filter: glow, opacity: 0.82 }
+            ], { ...timing, pseudoElement: '::after' });
+            halo.startTime = fadeStartsAt;
+        } catch {
+            // No pseudo-element animation support: the halo simply appears with the pulse.
+        }
     }
 
     configureLeafLandingAnimation(leaf, leafKey, position, leafSize, random, index, visitor) {
-        const windDirection = random() > 0.5 ? 1 : -1;
-        const isDemoLanding = visitor?.isDemoLanding === true;
-        const landingDuration = isDemoLanding
-            ? Math.round(4300 + random() * 500)
-            : Math.round(3200 + random() * 900);
-        const landingDelay = isDemoLanding
-            ? 80
-            : Math.min(index * 70 + Math.round(random() * 120), 640);
-        const containerRect = this.leavesContainer?.getBoundingClientRect();
-        const containerWidth = containerRect?.width || window.innerWidth || 1920;
-        const containerHeight = containerRect?.height || window.innerHeight || 1080;
-        const finalCenterX = (position?.x || 0) + (leafSize / 2);
-        const finalCenterY = (position?.y || 0) + (leafSize / 2);
-        const startCenterX = isDemoLanding
-            ? containerWidth * (0.5 + ((random() - 0.5) * 0.2))
-            : containerWidth * (0.5 + ((random() - 0.5) * 0.12));
-        const startCenterY = isDemoLanding
-            ? containerHeight * (0.9 + (random() * 0.08))
-            : containerHeight * (0.62 + (random() * 0.12));
-        const startX = Math.round(startCenterX - finalCenterX);
-        const startY = Math.round(startCenterY - finalCenterY);
-        const swayAX = Math.round((startX * 0.68) + (windDirection * (80 + random() * 120)));
-        const swayAY = Math.round((startY * 0.72) - (26 + random() * 72));
-        const swayBX = Math.round((startX * 0.42) - (windDirection * (80 + random() * 150)));
-        const swayBY = Math.round((startY * 0.43) - (88 + random() * 120));
-        const approachX = Math.round((startX * 0.18) + (windDirection * (20 + random() * 56)));
-        const approachY = Math.round((startY * 0.16) - (34 + random() * 70));
-        const finalX = Math.round(windDirection * (6 + random() * 28));
-        const yaw = Math.round(windDirection * (22 + random() * 38));
-        const startRotate = Math.round(windDirection * -(16 + random() * 28));
-        const swayARotate = Math.round(windDirection * (22 + random() * 34));
-        const swayBRotate = Math.round(windDirection * -(12 + random() * 28));
-        const approachRotate = Math.round(windDirection * (14 + random() * 24));
-        const finalRotate = Math.round(windDirection * -(5 + random() * 18));
-        const flutterDuration = Math.round(500 + random() * 360);
-        const closeScale = (isDemoLanding ? 3.1 + random() * 0.4 : 2.25 + random() * 0.55).toFixed(2);
-        const nearScale = (isDemoLanding ? 2.24 + random() * 0.3 : 1.76 + random() * 0.26).toFixed(2);
-        const midScale = (isDemoLanding ? 1.62 + random() * 0.22 : 1.36 + random() * 0.18).toFixed(2);
-        const farScale = (isDemoLanding ? 1.14 + random() * 0.14 : 1.1 + random() * 0.12).toFixed(2);
+        // Refreshes rebuild every leaf, so a flight in progress is resumed from where it was.
+        let flight = this.landingFlights.get(leafKey);
+        if (!flight) {
+            flight = this.planLeafLandingFlight(position, leafSize, random, index, visitor);
+            flight.startedAt = this.animationClock();
+            this.landingFlights.set(leafKey, flight);
+        }
 
-        leaf.classList.add('leaf-landing');
-        leaf.classList.toggle('leaf-demo-landing', isDemoLanding);
-        leaf.style.setProperty('--leaf-land-duration', `${landingDuration}ms`);
-        leaf.style.setProperty('--leaf-land-delay', `${landingDelay}ms`);
-        leaf.style.setProperty('--leaf-land-start-x', `${startX}px`);
-        leaf.style.setProperty('--leaf-land-start-y', `${startY}px`);
-        leaf.style.setProperty('--leaf-land-sway-a-x', `${swayAX}px`);
-        leaf.style.setProperty('--leaf-land-sway-a-y', `${swayAY}px`);
-        leaf.style.setProperty('--leaf-land-sway-b-x', `${swayBX}px`);
-        leaf.style.setProperty('--leaf-land-sway-b-y', `${swayBY}px`);
-        leaf.style.setProperty('--leaf-land-approach-x', `${approachX}px`);
-        leaf.style.setProperty('--leaf-land-approach-y', `${approachY}px`);
-        leaf.style.setProperty('--leaf-land-final-x', `${finalX}px`);
-        leaf.style.setProperty('--leaf-land-start-rotate', `${startRotate}deg`);
-        leaf.style.setProperty('--leaf-land-sway-a-rotate', `${swayARotate}deg`);
-        leaf.style.setProperty('--leaf-land-sway-b-rotate', `${swayBRotate}deg`);
-        leaf.style.setProperty('--leaf-land-approach-rotate', `${approachRotate}deg`);
-        leaf.style.setProperty('--leaf-land-final-rotate', `${finalRotate}deg`);
-        leaf.style.setProperty('--leaf-land-yaw', `${yaw}deg`);
-        leaf.style.setProperty('--leaf-land-flutter-duration', `${flutterDuration}ms`);
-        leaf.style.setProperty('--leaf-land-close-scale', closeScale);
-        leaf.style.setProperty('--leaf-land-near-scale', nearScale);
-        leaf.style.setProperty('--leaf-land-mid-scale', midScale);
-        leaf.style.setProperty('--leaf-land-far-scale', farScale);
+        const elapsed = this.animationClock() - flight.startedAt;
+        const remaining = flight.delay + flight.duration - elapsed;
+        const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+            && !document.body.classList.contains('tree-demo-motion-active');
 
         if (this.landingCleanupTimers.has(leafKey)) {
             window.clearTimeout(this.landingCleanupTimers.get(leafKey));
+            this.landingCleanupTimers.delete(leafKey);
         }
 
-        const cleanup = () => {
-            this.pendingLandingLeafKeys.delete(leafKey);
-            this.landingCleanupTimers.delete(leafKey);
+        let flutter = null;
+        const settleLeaf = (animation) => {
+            const wasLanding = this.pendingLandingLeafKeys.delete(leafKey);
+            this.landingFlights.delete(leafKey);
+            // The new leaf is on the tree: the oldest leaf waiting for it can fall now (after the tree is built).
+            if (wasLanding) window.setTimeout(() => this.releaseHeldLeafFalls(), 0);
+            if (this.landingCleanupTimers.has(leafKey)) {
+                window.clearTimeout(this.landingCleanupTimers.get(leafKey));
+                this.landingCleanupTimers.delete(leafKey);
+            }
+            if (!leaf.isConnected && animation) return;
+            // A just-landed leaf fades its glow in; its pulse starts once the fade is done.
+            const glowFadeMs = animation ? LEAF_GLOW_FADE_MS : 0;
+            this.leafGlowEpochs.set(leafKey, this.animationClock() + glowFadeMs);
+            leaf.style.setProperty('--leaf-glow-delay', `${glowFadeMs}ms`);
             leaf.classList.remove('leaf-landing');
             leaf.classList.add('leaf-landed');
+            // Both flight animations end exactly at the leaf's resting state, so removing them changes nothing on screen.
+            animation?.cancel();
+            flutter?.cancel();
+            if (animation) this.playLeafGlowFadeIn(leaf, leafKey);
         };
 
-        leaf.addEventListener('animationend', (event) => {
-            if (event.animationName === 'leafLandOnTree') {
-                cleanup();
-            }
-        }, { once: true });
+        if (reduceMotion || remaining <= 0 || typeof leaf.animate !== 'function') {
+            settleLeaf(null);
+            return;
+        }
 
-        const timer = window.setTimeout(cleanup, landingDelay + landingDuration + 350);
+        leaf.classList.add('leaf-landing');
+        leaf.classList.toggle('leaf-demo-landing', flight.isDemo);
+        // The flight's shadow and flutter start at take-off, after the time at the bottom middle.
+        const flightDuration = flight.flightDuration ?? flight.duration;
+        const takeOff = flight.delay + (flight.hold || 0);
+        leaf.style.setProperty('--leaf-land-duration', `${flightDuration}ms`);
+        leaf.style.setProperty('--leaf-land-delay', `${Math.round(takeOff - elapsed)}ms`);
+
+        // Even timing: the flight's easing is already in its keyframes (planLeafLandingFlight).
+        const animation = leaf.animate(flight.keyframes, {
+            duration: flight.duration,
+            delay: flight.delay,
+            easing: 'linear',
+            fill: 'both'
+        });
+        // Pinned to the flight's own start on the page clock: a leaf rebuilt by a refresh mid-flight
+        // carries on from exactly the same point, with no jump.
+        animation.startTime = flight.startedAt;
+
+        // The photo flutters as it flies, calming to nothing by the landing.
+        try {
+            const flip = leaf.style.getPropertyValue('--leaf-image-scale-x').trim() === '-1' ? -1 : 1;
+            flutter = leaf.animate(this.planLeafFlutterKeyframes(flight, flip), {
+                duration: flightDuration,
+                delay: takeOff,
+                easing: 'linear',
+                fill: 'both',
+                pseudoElement: '::before'
+            });
+            flutter.startTime = flight.startedAt;
+        } catch {
+            flutter = null;
+        }
+
+        animation.finished
+            .then(() => {
+                if (leaf.isConnected) settleLeaf(animation);
+            })
+            .catch(() => {});
+
+        const timer = window.setTimeout(() => settleLeaf(animation), remaining + 350);
         this.landingCleanupTimers.set(leafKey, timer);
     }
 
-    getLeafNameFontSize(name, leafSize) {
-        const normalizedName = String(name || '').trim();
-        const length = normalizedName.length || 1;
+    // Where the name sits, its angle and its text box: centred in the middle of the leaf and turned to
+    // run along the midrib, inside the leaf blade. The built-in leaf photos lie diagonally with the
+    // midrib about 27.5 degrees from horizontal: rising to the right on the left-hand leaf, falling to
+    // the right on the right-hand one. `side` is the photo as shown, mirroring included. A custom
+    // uploaded leaf image of unknown shape keeps the name level. Every name uses the same font size
+    // (getLeafNameFontSize); the box grows or narrows with the number of lines the name needs.
+    getLeafNameLayout(name, leafSize, isVip, side) {
         const size = Number(leafSize) || 80;
+        const fontSize = this.getLeafNameFontSize();
+        let angle = 0;
+        if (side === 'LeftLeaf.png') angle = -27.5;
+        if (side === 'RightLeaf.png') angle = 27.5;
 
-        const sizeBasedFont = size * 0.13;
-        const lengthPenalty = Math.min(0.6, Math.max(0, (length - 6) * 0.035));
-        const adjustedFont = sizeBasedFont * (1 - lengthPenalty);
+        let widthTable = isVip ? LEAF_NAME_LEVEL_WIDTHS.gold : LEAF_NAME_LEVEL_WIDTHS.green;
+        if (angle !== 0) {
+            widthTable = isVip ? LEAF_NAME_MIDRIB_WIDTHS.gold : LEAF_NAME_MIDRIB_WIDTHS.green;
+        }
+        return { left: 50, top: 50, angle, ...this.fitLeafName(name, size, fontSize, widthTable) };
+    }
 
-        return Math.max(6, Math.min(14, Math.round(adjustedFont)));
+    // One font size for every leaf name, so names look the same whatever the leaf's size. It grows
+    // with the admin's Leaf Display Scale. Bigger leaves fit more words at this size, smaller ones fewer.
+    getLeafNameFontSize() {
+        const scale = Number(this.leafDisplayScale);
+        const fontSize = LEAF_NAME_BASE_FONT_PX * (Number.isFinite(scale) && scale > 0 ? scale : 1) * (this.screenScale || 1);
+        return Math.max(5, Math.min(36, Math.round(fontSize * 2) / 2));
+    }
+
+    // Fits the name on the leaf at the given font size, wrapping only between words, never inside one.
+    // It tries one line, then two, then three; each gets the widest box that stays on the blade at that
+    // height (widthTable). Measured by the browser itself in a hidden copy of .leaf-name, so the line
+    // breaks match the real ones exactly. A name that does not fit is shortened at a word boundary with
+    // "..." (the full name stays in the leaf's title and detail card).
+    fitLeafName(name, leafSize, fontSize, widthTable) {
+        const fullText = String(name || '').trim().replace(/\s+/g, ' ') || 'Anonymous';
+        const cacheKey = `${fullText}|${leafSize}|${fontSize}|${widthTable === LEAF_NAME_MIDRIB_WIDTHS.green ? 'mg' : ''}${widthTable === LEAF_NAME_MIDRIB_WIDTHS.gold ? 'mv' : ''}${widthTable === LEAF_NAME_LEVEL_WIDTHS.green ? 'lg' : ''}${widthTable === LEAF_NAME_LEVEL_WIDTHS.gold ? 'lv' : ''}`;
+        if (!this.leafNameFitCache) this.leafNameFitCache = new Map();
+        if (this.leafNameFitCache.has(cacheKey)) return this.leafNameFitCache.get(cacheKey);
+
+        if (!this.leafNameMeasurer || !this.leafNameMeasurer.isConnected) {
+            this.leafNameMeasurer = document.createElement('div');
+            this.leafNameMeasurer.className = 'leaf-name leaf-name-measure';
+            this.leafNameMeasurer.setAttribute('aria-hidden', 'true');
+            document.body.appendChild(this.leafNameMeasurer);
+        }
+        const measurer = this.leafNameMeasurer;
+        measurer.style.fontSize = `${fontSize}px`;
+        const lineHeight = 1.05;
+
+        // Widest box (% of the leaf) that stays on the blade at a given height (% of the leaf).
+        const widthPercentAt = (heightPercent) => {
+            if (heightPercent <= widthTable[0][0]) return widthTable[0][1];
+            for (let i = 1; i < widthTable.length; i += 1) {
+                const [h1, w1] = widthTable[i];
+                if (heightPercent <= h1) {
+                    const [h0, w0] = widthTable[i - 1];
+                    return w0 + ((w1 - w0) * (heightPercent - h0)) / (h1 - h0);
+                }
+            }
+            return 0;
+        };
+
+        const fit = (text) => {
+            measurer.textContent = text;
+            for (let lines = 1; lines <= 3; lines += 1) {
+                const boxHeight = lines * fontSize * lineHeight;
+                const widthPercent = widthPercentAt((100 * boxHeight) / leafSize);
+                if (widthPercent <= 0) return null;
+                const boxWidth = Math.floor((leafSize * widthPercent) / 100);
+                measurer.style.width = `${boxWidth}px`;
+                if (measurer.scrollHeight <= boxHeight + 0.5 && measurer.scrollWidth <= boxWidth + 0.5) {
+                    return { text, fontSize, lines, width: boxWidth, height: Math.ceil(boxHeight) };
+                }
+            }
+            return null;
+        };
+
+        let result = fit(fullText);
+
+        // Too long: keep as many whole words as fit, then "...".
+        const words = fullText.split(' ');
+        for (let count = words.length - 1; count >= 1 && !result; count -= 1) {
+            result = fit(`${words.slice(0, count).join(' ')}…`);
+        }
+
+        // Even the first word alone is too long: cut it.
+        for (let chars = words[0].length - 1; chars >= 1 && !result; chars -= 1) {
+            result = fit(`${words[0].slice(0, chars)}…`);
+        }
+
+        if (!result) {
+            const height = Math.ceil(fontSize * lineHeight);
+            result = { text: `${fullText.slice(0, 1)}…`, fontSize, lines: 1, width: Math.floor(leafSize * 0.3), height };
+        }
+        // Shortened: the full name and the one-line box it can scroll in (makeLeafNameScroll).
+        if (result.text.endsWith('…')) {
+            const lineBox = Math.ceil(fontSize * lineHeight);
+            const oneLine = Math.floor((leafSize * widthPercentAt((100 * lineBox) / leafSize)) / 100);
+            result = { ...result, scroll: { full: fullText, width: Math.max(oneLine, Math.floor(leafSize * 0.3)), height: lineBox } };
+        }
+        this.leafNameFitCache.set(cacheKey, result);
+        return result;
+    }
+
+    // A long name (shortened with "…" to fit the blade) shown in full instead, scrolling inside the leaf (Owner:
+    // Role 2, Wei Jie; tree3dParameters.leafNameScroll, one switch for both trees): on one line in the blade's
+    // one-line box, twice, a gap apart; it holds at the start, then glides from right to left at a steady pace
+    // (so it reads from left to right) until the second copy is where the first began, and goes round again
+    // (tree.css .leaf-name-scroll). Each leaf at its own moment.
+    makeLeafNameScroll(nameElement, nameLayout) {
+        const { full, width, height } = nameLayout.scroll;
+        if (!this.leafNameScrollContext) this.leafNameScrollContext = document.createElement('canvas').getContext('2d');
+        const family = this.leafNameMeasurer ? getComputedStyle(this.leafNameMeasurer).fontFamily : getComputedStyle(document.body).fontFamily;
+        this.leafNameScrollContext.font = `bold ${nameLayout.fontSize}px ${family}`;
+        const gap = Math.round(width * 0.6);
+        const copy = Math.ceil(this.leafNameScrollContext.measureText(full).width) + gap;
+        const travel = copy / (width * 0.5); // seconds: half the box's width each second
+        nameElement.classList.add('leaf-name-scroll');
+        nameElement.style.setProperty('--leaf-name-width', `${width}px`);
+        nameElement.style.setProperty('--leaf-name-height', `${height}px`);
+        nameElement.style.setProperty('--leaf-name-lines', '1');
+        nameElement.style.setProperty('--leaf-name-scroll-distance', `${copy}px`);
+        nameElement.style.setProperty('--leaf-name-scroll-gap', `${gap}px`);
+        nameElement.style.setProperty('--leaf-name-scroll-duration', `${(travel / 0.8).toFixed(2)}s`); // its first 20%: the pause
+        nameElement.style.setProperty('--leaf-name-scroll-delay', `${(-Math.random() * travel).toFixed(2)}s`);
+        const track = document.createElement('span');
+        track.className = 'leaf-name-track';
+        for (const copyIndex of [0, 1]) {
+            const part = document.createElement('span');
+            part.textContent = full;
+            if (copyIndex) part.setAttribute('aria-hidden', 'true');
+            track.appendChild(part);
+        }
+        nameElement.replaceChildren(track);
+    }
+
+    // A new leaf has landed: the oldest leaves held on the tree for it (getLeafCycleState) start to fall,
+    // without rebuilding the tree.
+    releaseHeldLeafFalls() {
+        if (!this.activeLeafCycle?.heldFallCount || this.activeLeafCycle.isDemoCycle || this.isReviewMode) return;
+        const leafCycle = this.getLeafCycleState();
+        if (leafCycle.isDemoCycle || leafCycle.fallingLeafCount <= this.activeLeafCycle.fallingLeafCount) return;
+        this.activeLeafCycle = leafCycle;
+        this.applyLeafThresholdEffect(leafCycle);
     }
 
     applyLeafThresholdEffect(leafCycle) {
@@ -1880,6 +2680,8 @@ class TreeManager {
 
         leaves.forEach(leaf => {
             leaf.classList.add('leaf-falling');
+            this.playLeafFall(leaf);
+            if (leaf.dataset.leafKey === this.selectedLeafKey) this.closeLeafDetail(); // its card goes with it
         });
 
         if (this.leafFallStarted && this.leafFallCycleNumber === leafCycle.cycleNumber) return;
@@ -1902,16 +2704,79 @@ class TreeManager {
             leaves.forEach(leaf => {
                 leaf.classList.remove('leaf-falling');
                 leaf.classList.add('leaf-fallen', 'leaf-cleared');
+                this.leafFalls.delete(leaf.dataset.leafKey);
             });
             this.leafFallStarted = false;
             this.leafGreenTimer = null;
         }, clearDelay);
     }
 
+    // The oldest leaf drops off the tree smoothly, like a real leaf flowing down: it lets go gently,
+    // drifts out to its own side of the tree first and then mostly down in one smooth curve (never back,
+    // no zigzag), gliding fastest in the middle and settling softly, while it turns slowly, rocks softly,
+    // shrinks a little and fades away near the ground. Every movement starts and ends at rest, and the
+    // whole fall is one animation pinned to its start time, so a refresh mid-fall carries on unchanged.
+    // It takes the admin's Leaf Fall Duration (leafFallDuration).
+    playLeafFall(leaf) {
+        const leafKey = leaf.dataset.leafKey;
+        if (!leafKey || typeof leaf.animate !== 'function' || leaf.dataset.fallPlaying === '1') return;
+        leaf.dataset.fallPlaying = '1'; // this element already falls (a rebuilt one carries on from the same start)
+        const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+            && !document.body.classList.contains('tree-demo-motion-active');
+        if (reduceMotion) return;
+
+        let fall = this.leafFalls.get(leafKey);
+        if (!fall) {
+            fall = this.planLeafFall(leaf, leafKey);
+            fall.startedAt = this.animationClock() + (Number(leaf.dataset.fallDelay) || 0);
+            this.leafFalls.set(leafKey, fall);
+        }
+        const animation = leaf.animate(fall.keyframes, { duration: fall.duration, easing: 'linear', fill: 'forwards' });
+        animation.startTime = fall.startedAt;
+    }
+
+    planLeafFall(leaf, leafKey) {
+        const random = this.createSeededRandom(`${leafKey}|fall`);
+        const duration = Math.max(1200, Number(this.leafFallDuration) || 4200);
+        const containerWidth = this.leavesContainer?.clientWidth || window.innerWidth || 1920;
+        const leafCentre = (parseFloat(leaf.style.left) || 0) + ((leaf.offsetWidth || 80) / 2);
+        const side = leafCentre >= containerWidth / 2 ? 1 : -1; // drifts out, away from the trunk
+        const distance = Math.round(Math.max(360, Math.min(window.innerHeight * (0.5 + (random() * 0.32)), 760)));
+        const drift = side * (80 + (random() * 150));
+        const turn = side * (20 + (random() * 30));   // degrees, a slow turn over the whole fall
+        const rock = 5 + (random() * 5);              // degrees, a soft rock about once on the way down
+        const tilt = (random() - 0.5) * 24;           // degrees, tipping back a little
+        const endScale = 0.76 + (random() * 0.1);
+        const phase = random() * Math.PI * 2;
+        const opacityValue = Number(this.leafOpacity);
+        const visibleOpacity = Number.isFinite(opacityValue) ? opacityValue : 0.9;
+        const smoothstep = (edge0, edge1, value) => {
+            const k = Math.min(1, Math.max(0, (value - edge0) / (edge1 - edge0)));
+            return k * k * (3 - (2 * k));
+        };
+
+        const steps = Math.max(60, Math.round(duration / 50));
+        const keyframes = [];
+        for (let step = 0; step <= steps; step += 1) {
+            const t = step / steps;
+            const down = (1 - Math.cos(Math.PI * t)) / 2; // from rest, fastest in the middle, to rest
+            const out = smoothstep(0, 0.8, t);            // out first, then mostly down
+            const x = drift * out;
+            const y = distance * down;
+            const rotate = (turn * down) + (rock * Math.sin((Math.PI * 1.6 * t) + phase) * Math.sin(Math.PI * t));
+            const rotateX = tilt * Math.sin(Math.PI * t);
+            const scale = 1 + ((endScale - 1) * down);
+            const opacity = visibleOpacity * (1 - smoothstep(0.68, 1, t));
+            keyframes.push({
+                offset: t,
+                opacity: Number(opacity.toFixed(3)),
+                transform: `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, 0px) rotate(${rotate.toFixed(2)}deg) rotateX(${rotateX.toFixed(2)}deg) scale(${scale.toFixed(4)})`
+            });
+        }
+        return { duration, keyframes };
+    }
+
     findRandomPositionInOval(ovalArea, leafSize, seed) {
-        let x;
-        let y;
-        let tries = 0;
         const random = this.createSeededRandom(seed);
 
         const cx = ovalArea.x + ovalArea.width / 2;
@@ -1919,19 +2784,25 @@ class TreeManager {
 
         const a = ovalArea.width / 2;
         const b = ovalArea.height / 2;
+        const radius = leafSize * this.leafSpacingRadius;
+        let best = null;
 
-        do {
-            x = (random() * 2 - 1) * a;
-            y = (random() * 2 - 1) * b;
+        for (let tries = 0; a > 0 && b > 0 && tries < 500; tries++) {
+            const x = (random() * 2 - 1) * a;
+            const y = (random() * 2 - 1) * b;
+            if ((x * x) / (a * a) + (y * y) / (b * b) > 1) continue;
+            if (this.leafTouchesTitle(cx + x - leafSize / 2, cy + y - leafSize / 2, leafSize)) continue; // never under the title box
 
-            tries += 1;
-            if (tries > 500) break;
-        } while ((x * x) / (a * a) + (y * y) / (b * b) > 1);
+            const overlap = this.leafOverlapAt(cx + x, cy + y, radius);
+            if (!best || overlap < best.overlap) {
+                best = { x: cx + x - leafSize / 2, y: cy + y - leafSize / 2, overlap };
+            }
+            if (overlap === 0) break;
+        }
 
-        return {
-            x: cx + x - leafSize / 2,
-            y: cy + y - leafSize / 2
-        };
+        return best
+            ? { x: best.x, y: best.y }
+            : { x: cx - leafSize / 2, y: cy - leafSize / 2 };
     }
 
     // ==================== FIX: KEEP MASK ALWAYS HIDDEN ====================
@@ -1963,6 +2834,8 @@ class TreeManager {
 
     refreshTree() {
         this.updateLeavesTransparency();
+        this.applyScreenShape();   // the window may have changed size
+        this.layoutTreePictures(); // the screen may have changed size
 
         // rebuild mask (helps after resize)
         this.maskData = this.buildMaskCanvas();
@@ -2017,8 +2890,17 @@ function triggerTreeVipRefresh() {
     });
 }
 
+// One refresh at a time: one asked for meanwhile (a live message) runs straight after.
+let treeRefreshRunning = false;
+let treeRefreshQueued = false;
+
 function refreshTreeFromServer() {
+    if (treeRefreshRunning) {
+        treeRefreshQueued = true;
+        return;
+    }
     if (treeManager) {
+        treeRefreshRunning = true;
         const yearToRefresh = treeManager.isReviewMode ? treeManager.selectedYear : treeManager.currentYear;
 
         Promise.all([
@@ -2033,6 +2915,12 @@ function refreshTreeFromServer() {
         }).catch((error) => {
             console.warn('Tree refresh failed:', error);
         }).finally(() => {
+            treeRefreshRunning = false;
+            if (treeRefreshQueued) {
+                treeRefreshQueued = false;
+                refreshTreeFromServer();
+                return;
+            }
             scheduleTreeRefresh();
         });
     } else {
@@ -2043,13 +2931,53 @@ function refreshTreeFromServer() {
 function scheduleTreeRefresh() {
     window.clearTimeout(treeRefreshTimer);
     const configuredInterval = Math.max(5000, Number(treeManager?.leafRefreshInterval) || 30000);
-    const interval = treeManager && !treeManager.isReviewMode
-        ? Math.min(configuredInterval, treeManager.liveTreeRefreshInterval || 5000)
-        : configuredInterval;
+    // The live tree checks every 5 seconds, from the first check after the page opens (before the tree
+    // has started, the first check used to wait the full 30 seconds, so a new leaf could take that long).
+    // With the live connection open (connectTreeLiveUpdates) a new leaf comes at once, so the timed check is
+    // only a safety net (TREE_LIVE_FALLBACK_MS).
+    const liveInterval = treeLiveConnected
+        ? Math.max(configuredInterval, TREE_LIVE_FALLBACK_MS)
+        : Math.min(configuredInterval, treeManager?.liveTreeRefreshInterval || 5000);
+    const interval = !treeManager || !treeManager.isReviewMode ? liveInterval : configuredInterval;
     treeRefreshTimer = window.setTimeout(refreshTreeFromServer, interval);
 }
 
+// ---------- Event-driven refresh (Task 2) ----------
+// The server tells this page the moment the tree's data changes (a new feedback or pledge, one deleted or
+// archived, a VIP change) or the admin saves settings: GET /api/tree/events, backend/features/tree/liveEvents.js.
+// The page then refreshes at once, so a new leaf shows at the bottom middle within about a second of being
+// submitted, instead of at the next timed check. While connected, the timed check runs only every
+// TREE_LIVE_FALLBACK_MS as a safety net; if the connection drops, the browser reconnects by itself and the page
+// checks every 5 seconds again meanwhile. Not on the admin's demo page (/tree-demo), whose demos hold the
+// refresh, nor while a past year is shown in the Year Review.
+const TREE_LIVE_FALLBACK_MS = 120000;
+let treeLiveConnected = false;
+
+function connectTreeLiveUpdates() {
+    if (typeof EventSource !== 'function' || /^\/tree-demo\/?$/i.test(window.location.pathname)) return;
+    const source = new EventSource('/api/tree/events');
+    const onChange = () => {
+        if (!treeManager || treeManager.isReviewMode || treeManager.demoPlaybackActive) return;
+        refreshTreeFromServer();
+    };
+    source.addEventListener('ready', () => {
+        const wasConnected = treeLiveConnected;
+        treeLiveConnected = true;
+        // (Re)connected: anything missed while the connection was down is fetched now.
+        if (wasConnected === false && treeManager?.initialVisitorSnapshotReady) onChange();
+        scheduleTreeRefresh();
+    });
+    source.addEventListener('tree', onChange);
+    source.addEventListener('settings', onChange);
+    source.addEventListener('error', () => {
+        if (!treeLiveConnected) return;
+        treeLiveConnected = false; // checks every 5 seconds until it is back
+        scheduleTreeRefresh();
+    });
+}
+
 scheduleTreeRefresh();
+connectTreeLiveUpdates();
 
 window.addEventListener('tree-vip-refresh', triggerTreeVipRefresh);
 window.addEventListener('storage', (event) => {

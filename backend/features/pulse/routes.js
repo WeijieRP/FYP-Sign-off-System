@@ -1,7 +1,7 @@
 // Owner: Role 2, Wei Jie. Previous team: XY (Xuanyang) (2).
 // ============================================================
 // DONE BY XY - LIVE PULSE ROUTES SUMMARY
-//  - Added live ESG Kiosk pulse summary API routes.
+//  - Added live RP Xperience Centre Kiosk pulse summary API routes.
 //  - Aggregates pledge counts for today, this month, all-time pledges, and digital tree visitors.
 //  - Builds anonymized recent pledge feed for public display.
 //  - Maps pledge topics to badge labels and builds badge earner/badge mix summaries.
@@ -13,6 +13,9 @@ const express = require('express');
 const router = express.Router();
 const db = require('../../core/db');
 const parametersConfigStore = require('../parameters/store');
+// <Jun Kai start>
+const deletedCounts = require('../archive/deletedCounts');
+// <Jun Kai end>
 
 const CAMPAIGN_GOAL = Number(process.env.PULSE_CAMPAIGN_GOAL || 100);
 
@@ -183,14 +186,14 @@ router.get('/summary', async (req, res) => {
                   AND YEAR(CONVERT_TZ(created_at, '+00:00', '+08:00')) = YEAR(CONVERT_TZ(NOW(), '+00:00', '+08:00'))
                   AND MONTH(CONVERT_TZ(created_at, '+00:00', '+08:00')) = MONTH(CONVERT_TZ(NOW(), '+00:00', '+08:00'))
             `),
-            queryOne(`
-                SELECT COUNT(*) AS count
-                FROM feedback
-                WHERE is_active = 1
-                  AND archive_status = 'not_archived'
-                  AND comment IS NOT NULL
-                  AND comment != ''
-            `),
+            // <Jun Kai start>
+            // All-Time Pledges: every pledge ever made, archived and deleted ones included (deletedCounts.js); when it
+            // cannot be read the whole summary fails, as before, so the screen keeps its last numbers instead of a 0
+            deletedCounts.allTimePledges().then((count) => {
+                if (count === null) throw new Error('all-time pledge total unavailable');
+                return { count };
+            }),
+            // <Jun Kai end>
             queryAll(`
                 SELECT id, comment, metadata, created_at
                 FROM feedback
@@ -248,7 +251,7 @@ router.get('/summary', async (req, res) => {
                 treeLeaves: treeVisitors.length
             },
             activeCampaign: activeCampaign ? {
-                title: activeCampaign.title || 'Current ESG Campaign',
+                title: activeCampaign.title || 'Current RP Xperience Centre Campaign',
                 cadence: activeCampaign.cadence || 'weekly',
                 badgeEmphasis: activeCampaign.badgeEmphasis || '',
                 treeSubtitle: activeCampaign.treeSubtitle || ''

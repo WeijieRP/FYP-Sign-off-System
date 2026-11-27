@@ -1,5 +1,6 @@
-# Builds an installable zip from main after CI passed and publishes it as a pre-release.
-# The wall PC installs from the release asset. Nothing is deployed automatically.
+# Builds the offline install package of the kiosk from main after CI passed and publishes it as a GitHub Release.
+# The PC at the centre installs from the release asset (by hand, or with the one command install). Nothing is
+# deployed automatically.
 name: Release
 
 on:
@@ -18,32 +19,91 @@ concurrency:
 
 jobs:
   build:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # <Jun Kai/> only a green CI of a push to this repo's main: "branches: [main]" also matches a pull request from a
+    # fork whose branch is called main, and this job may publish
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository)
+    # <Jun Kai start>
+    # Windows, because the package carries packages built for Windows x64 (bcrypt, sharp) and the Visual C++ runtime.
+    # A normal release (not a pre-release) with fixed asset names, so .../releases/latest/download/<name> always
+    # gives the newest one; that is the address get-kiosk.ps1 uses.
+    runs-on: windows-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
-      - name: Build the zip
-        id: build
-        run: |
-          SHA7=$(git rev-parse --short=7 HEAD)
-          TAG="build-$(date -u +%Y%m%d-%H%M)-$SHA7"
-          NAME="kiosk-$TAG.zip"
-          zip -qr "$NAME" . \
-            -x 'node_modules/*' '.git/*' 'uploads/photos/*' 'uploads/processed/*' 'logs/*' '*.log' \
-               'backend/.env' 'backend/certs/*' 'backend/cache/*' 'backend/data/*' \
-               'backend/config/defaults/emailConfig.json' 'legacy/*' 'Team_Documentation/*' 'docs/*'
-          sha256sum "$NAME" > "$NAME.sha256"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "name=$NAME" >> "$GITHUB_OUTPUT"
-          ls -lh "$NAME"
-      - name: Publish as a pre-release
+          fetch-depth: 0 # the build number is the number of commits
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      # CI runs can finish out of order, so this run may belong to an older commit than the newest release. The build
+      # number (commits on main) only grows, so a run whose build is not newer than every build release does nothing.
+      - name: Is this build newer than the newest release?
+        id: order
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          NOTES="Built from $(git rev-parse HEAD) on $(date -u +'%Y-%m-%d %H:%M UTC').\n\nInstall: unzip, run npm ci, copy backend/.env.example to backend/.env, then node startAll.js."
-          printf "%b" "$NOTES" > notes.md
-          gh release create "${{ steps.build.outputs.tag }}" "${{ steps.build.outputs.name }}" "${{ steps.build.outputs.name }}.sha256" \
-            --prerelease --title "${{ steps.build.outputs.tag }}" --notes-file notes.md --target "$(git rev-parse HEAD)"
+          BUILD=$(git rev-list --count HEAD)
+          NEWEST=$(gh api --paginate "repos/${{ github.repository }}/releases?per_page=100" --jq '.[].tag_name' | sed -n -E 's/^build-([0-9]+)-[0-9a-f]{7,}$/\1/p' | sort -n | tail -1)
+          if [ -n "$NEWEST" ] && [ "$NEWEST" -ge "$BUILD" ]; then
+            echo "build $BUILD is not newer than the newest release (build $NEWEST): nothing is published"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "build $BUILD is the newest (newest release so far: ${NEWEST:-none})"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+      # no cache for the Node.js and MySQL downloads here: a job that may publish must not read files a pull request
+      # could have cached (the npm cache of setup-node is kept per branch, so main's own)
+      - name: Build the package (with the offline AI model)
+        if: steps.order.outputs.skip != 'true'
+        run: node scripts/install/build-package.js --out C:\rpkb
+      - name: Publish the release
+        if: steps.order.outputs.skip != 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BUILD=$(git rev-list --count HEAD)
+          SHA7=$(git rev-parse --short=7 HEAD)
+          TAG="build-$BUILD-$SHA7"
+          D=/c/rpkb/dist
+          cat > notes.md <<EOF
+          Kiosk build $BUILD, from commit $(git rev-parse HEAD), built $(date -u +'%Y-%m-%d %H:%M UTC').
+
+          **Install on a Windows 10 or 11 PC with nothing installed** (Node.js and MySQL are inside the package):
+          - Download rp-xperience-kiosk-windows-x64.zip, unzip it, run install.cmd (README.txt inside lists the options).
+          - Or paste this one line into PowerShell; it downloads the same zip and runs the same install.cmd:
+
+          \`\`\`
+          curl.exe -fsSLo "\$env:TEMP\get-kiosk.ps1" https://github.com/${{ github.repository }}/releases/latest/download/get-kiosk.ps1; powershell -NoProfile -ExecutionPolicy Bypass -File "\$env:TEMP\get-kiosk.ps1"
+          \`\`\`
+
+          Running install.cmd of a newer build updates an installed PC and keeps all data. Uninstall: C:\\RPXperienceKiosk\\app\\uninstall.cmd.
+          The zip also holds the sentiment model, so the local AI check works without internet.
+          Check a download: each zip has a .sha256 file next to it.
+          EOF
+          sed -i 's/^          //' notes.md
+          gh release create "$TAG" \
+            "$D/rp-xperience-kiosk-windows-x64.zip" "$D/rp-xperience-kiosk-windows-x64.zip.sha256" \
+            "$D/get-kiosk.ps1" \
+            --title "Kiosk build $BUILD" --notes-file notes.md --target "$(git rev-parse HEAD)" --latest
+      # Only the newest release stays (each one holds about 330 MB). Only releases this workflow made (tag
+      # build-<number>-<commit>) with a LOWER build number are deleted, so a newer release and a release made by hand
+      # (for example for the hand over) are never touched. The git tags stay: they only mark the commits.
+      - name: Delete the older build releases
+        if: steps.order.outputs.skip != 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BUILD=$(git rev-list --count HEAD)
+          KEEP="build-$BUILD-$(git rev-parse --short=7 HEAD)"
+          gh release view "$KEEP" --json tagName --jq .tagName
+          gh api --paginate "repos/${{ github.repository }}/releases?per_page=100" --jq '.[].tag_name' | sed -n -E 's/^build-([0-9]+)-[0-9a-f]{7,}$/\1 &/p' | awk -v b="$BUILD" '$1 < b { print $2 }' > old.txt || true
+          echo "keeping $KEEP, deleting $(wc -l < old.txt) older build release(s)"
+          while read -r tag; do
+            gh release delete "$tag" --yes
+          done < old.txt
+    # <Jun Kai end>

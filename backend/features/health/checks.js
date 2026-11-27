@@ -1,6 +1,7 @@
 // Owner: Role 3, Jun Kai.
 // Health checks behind the admin System Health page. Every check answers
-// { key, label, status: ok | warn | down | unknown, summary, detail, latencyMs } and never throws.
+// { key, label, status: ok | warn | down | unknown | off, summary, detail, latencyMs } and never throws. off: switched
+// off on purpose (Ollama while the Local AI models switch is off), never a problem.
 const os = require('os');
 const fs = require('fs');
 const http = require('http');
@@ -12,11 +13,15 @@ const scheduler = require('../serverControl/scheduler');
 const emailService = require('../email/service');
 // <Jun Kai start>
 const tabletNames = require('./tabletNames');
+// the alert lines of each part (Hardware page, Alert lines) and when a tablet counts as offline (Tablets, Offline after)
+const hardwareSettings = require('../hardware/settings');
+const healthSettings = require('./settings');
+const aiopsSettings = require('../aiops/settings');
+const tabletWindowSeconds = () => healthSettings.read().tabletOfflineMinutes * 60;
 // <Jun Kai end>
 
 const OLLAMA_URL = (process.env.OLLAMA_URL || 'http://127.0.0.1:11434').replace(/\/$/, '');
 const EMAIL_CACHE_MS = 5 * 60 * 1000; // an SMTP verify talks to Gmail, so keep the result for a while
-const TABLET_ONLINE_SECONDS = 180;
 
 const query = (fn, sql, params) => new Promise((resolve, reject) => db[fn](sql, params, (err, rows) => (err ? reject(err) : resolve(rows))));
 const withTimeout = (promise, ms, label) => Promise.race([
@@ -67,6 +72,11 @@ async function checkDatabase() {
 
 async function checkOllama() {
     const base = { key: 'ollama', label: 'Ollama (local LLM)' };
+    // <Jun Kai start> nothing in the app uses Ollama (AI Settings page: the advisor and the Feedback Reports modes are off), so it is not even asked
+    if (!aiopsSettings.localAiOn()) {
+        return { ...base, status: 'off', summary: 'Switched off on the AI Settings page', detail: { url: OLLAMA_URL, hint: 'The incident advisor and the Feedback Reports AI modes are switched off on the AI Settings page.' }, latencyMs: null };
+    }
+    // <Jun Kai end>
     try {
         const { value, ms } = await timed(() => withTimeout(getJson(`${OLLAMA_URL}/api/tags`, 4000), 4000, 'Ollama'));
         const models = Array.isArray(value.body && value.body.models) ? value.body.models.map((m) => m.name) : [];
@@ -93,7 +103,9 @@ async function checkDisk() {
         const gb = (n) => (n / 1024 ** 3).toFixed(1);
         return {
             ...base,
-            status: usedPercent >= 95 ? 'down' : usedPercent >= 85 ? 'warn' : 'ok',
+            // <Jun Kai start> the Disk alert line of the Hardware page (85 / 95 unless changed there)
+            status: hardwareSettings.alertTone(usedPercent, hardwareSettings.readAlerts().disk),
+            // <Jun Kai end>
             summary: `${gb(free)} GB free of ${gb(total)} GB (${usedPercent}% used)`,
             detail: { path: paths.ROOT, freeBytes: free, totalBytes: total, usedPercent },
             latencyMs: null
@@ -111,7 +123,7 @@ function checkKiosk() {
             const ms = Date.now() - started;
             resolve(result.running
                 ? { ...base, status: 'ok', summary: `Reachable, ${ms} ms`, detail: { status: result.status, source: result.source }, latencyMs: ms }
-                : { ...base, status: 'down', summary: 'Not reachable', detail: { status: result.status, source: result.source, hint: 'Start it from Server Schedule or check logs/' }, latencyMs: ms });
+                : { ...base, status: 'down', summary: 'Not reachable', detail: { status: result.status, source: result.source, hint: 'Start it from Operating Hours or check logs/' }, latencyMs: ms });
         });
     });
 }
@@ -125,7 +137,7 @@ async function checkEmail(force = false) {
         const { value, ms } = await timed(() => withTimeout(emailService.checkEmailService(), 15000, 'SMTP check'));
         result = value.available && value.verified
             ? { ...base, status: 'ok', summary: `${value.service || 'SMTP'} login works, ${ms} ms`, detail: { provider: value.service, sender: value.sender }, latencyMs: ms }
-            : { ...base, status: 'down', summary: 'Cannot log in to the mail server', detail: { sender: value.sender, error: value.error || 'verification failed', hint: 'Check Email Management' }, latencyMs: ms };
+            : { ...base, status: 'down', summary: 'Cannot log in to the mail server', detail: { sender: value.sender, error: value.error || 'verification failed', hint: 'Check the Mail Account page' }, latencyMs: ms };
     } catch (error) {
         result = { ...base, status: 'down', summary: 'Cannot reach the mail server', detail: { error: error.message }, latencyMs: null };
     }
@@ -152,12 +164,13 @@ async function checkServer() {
     const totalMem = os.totalmem();
     const memoryPercent = Math.round((1 - os.freemem() / totalMem) * 100);
     const rss = process.memoryUsage().rss;
+    const alerts = hardwareSettings.readAlerts(); // <Jun Kai/>
     return {
         key: 'server',
         label: 'Server PC',
         // <Jun Kai start>
-        // the same steps as the meters on the Hardware page: amber from 85 %, red from 95 %
-        status: cpuPercent >= 95 || memoryPercent >= 95 ? 'down' : cpuPercent >= 85 || memoryPercent >= 85 ? 'warn' : 'ok',
+        // the CPU and Memory alert lines of the Hardware page (85 / 95 unless changed there); the worse of the two
+        status: hardwareSettings.worstTone(hardwareSettings.alertTone(cpuPercent, alerts.cpu), hardwareSettings.alertTone(memoryPercent, alerts.memory)),
         summary: `CPU ${cpuPercent}%, memory ${memoryPercent}%`,
         // <Jun Kai end>
         detail: {
@@ -192,13 +205,14 @@ async function checkTablets() {
             ORDER BY last_seen DESC
             LIMIT 50`, []);
         const names = tabletNames.all();
-        const devices = tabletNames.sortDevices(rows.map((r) => ({ ...r, name: names[r.device_id] || null, online: r.seconds_ago <= TABLET_ONLINE_SECONDS })));
+        const windowSeconds = tabletWindowSeconds(); // <Jun Kai/> Offline after, on the Tablets list (3 minutes by default)
+        const devices = tabletNames.sortDevices(rows.map((r) => ({ ...r, name: names[r.device_id] || null, online: r.seconds_ago <= windowSeconds })));
         const online = devices.filter((d) => d.online);
         let status = 'ok';
         let summary = `${online.length} online of ${devices.length} known`;
         if (!devices.length) { status = 'unknown'; summary = 'No tablet has reported yet'; }
-        else if (!online.length) { status = 'warn'; summary = `None of the ${devices.length} known tablets reported in the last 3 minutes`; }
-        return { ...base, status, summary, detail: { devices, onlineWindowSeconds: TABLET_ONLINE_SECONDS }, latencyMs: null };
+        else if (!online.length) { status = 'warn'; summary = `None of the ${devices.length} known tablets reported in the last ${windowSeconds / 60} minutes`; }
+        return { ...base, status, summary, detail: { devices, onlineWindowSeconds: windowSeconds }, latencyMs: null };
     } catch (error) {
         if (error.code === 'ER_NO_SUCH_TABLE') {
             if (!heartbeatTableWarned) { heartbeatTableWarned = true; console.warn('⚠️ device_heartbeats table is missing: run npm run db:migrate'); }
@@ -210,7 +224,7 @@ async function checkTablets() {
 // <Jun Kai end>
 
 function checkAutomation() {
-    const base = { key: 'automation', label: 'Schedules & hibernation' };
+    const base = { key: 'automation', label: 'Schedules' };
     return new Promise((resolve) => {
         scheduler.getStatus((a) => {
             let status = 'ok';
@@ -220,20 +234,17 @@ function checkAutomation() {
             else if (a.mode !== 'auto') { status = 'warn'; summary = 'Manual mode: policies are paused'; }
             else if (!a.activeSchedules) { status = 'warn'; summary = 'AUTO mode but no enabled policy'; }
             else if (!a.activePolicies) { status = 'warn'; summary = 'AUTO mode but no Active policy, so the kiosk never runs'; }
-            else if (a.wakeNeeded && a.wake && a.wake.supported && a.wake.task && !a.wake.task.exists) { status = 'warn'; summary += ', wake timer missing'; }
             // <Jun Kai end>
-            else if (a.wake && a.wake.wakeTimersAllowed === false) { status = 'warn'; summary += ', wake timers blocked by Windows'; }
             resolve({
                 ...base,
                 status,
                 summary,
                 // <Jun Kai start>
-                // manual mode pauses the policies: no planned stop or start, and no wake-ups
+                // manual mode pauses the policies: no planned stop or start
                 detail: {
                     mode: a.mode,
                     nextStop: a.mode === 'auto' ? a.nextStop : null,
                     nextStart: a.mode === 'auto' ? a.nextStart : null,
-                    wakeTask: a.mode !== 'auto' ? 'paused in manual mode' : a.wake && a.wake.task ? (a.wake.task.exists ? 'set' : 'missing') : 'not available',
                     // <Jun Kai end>
                     lastEvent: a.events && a.events[0] ? a.events[0] : null
                 },

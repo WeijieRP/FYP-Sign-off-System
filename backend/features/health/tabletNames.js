@@ -11,7 +11,7 @@ const MAX_LENGTH = 40;
 const collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
 
 const file = () => paths.dataFile('tablet-names.json');
-const isDeviceId = (id) => DEVICE_ID.test(String(id || ''));
+const isDeviceId = (id) => DEVICE_ID.test(String(id || '')) && !['__proto__', 'constructor', 'prototype'].includes(String(id)); // never a built-in key of the names object
 
 function all() {
     const data = readJson(file(), null);

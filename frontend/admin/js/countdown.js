@@ -13,6 +13,52 @@ function getTimerCountdownEls() {
     };
 }
 
+// <Jun Kai start> the redesigned page: a pill under the title for saved or failed, and button text without wiping the icon
+function setTimerStatus(type, message) {
+    const status = document.getElementById('timer-countdown-status');
+    if (!status) return;
+    status.innerHTML = type ? uiPill(type === 'success' ? 'ok' : 'down', message) : '';
+}
+
+function setTimerButtonText(btn, text) {
+    const label = btn.querySelector('.pt-btn-text');
+    if (label) label.textContent = text;
+}
+
+// a quick pick fills the field; Save still stores it
+function pickTimerCountdown(seconds) {
+    const { input } = getTimerCountdownEls();
+    if (!input) return;
+    input.value = String(seconds);
+    validateTimerCountdown();
+}
+
+// the quick pick that matches the field is marked
+function markTimerQuickPick() {
+    const input = document.getElementById('timer-countdown-seconds');
+    document.querySelectorAll('#timer-quick button').forEach((btn) => {
+        const on = Boolean(input && input.value !== '' && Number(btn.dataset.seconds) === Number(input.value));
+        btn.classList.toggle('is-set', on);
+        btn.setAttribute('aria-pressed', String(on));
+    });
+}
+
+// the preview: the kiosk shows the number in a round badge on the camera view and counts down to 1 (feedback photo.js).
+// An empty field saves as 0, so it shows as no countdown too.
+function renderTimerPreview() {
+    const input = document.getElementById('timer-countdown-seconds');
+    const badge = document.getElementById('pt-preview-badge');
+    const caption = document.getElementById('pt-preview-caption');
+    if (!input || !badge || !caption) return;
+    const seconds = Number(input.value) || 0;
+    badge.hidden = seconds === 0;
+    badge.textContent = String(seconds);
+    caption.textContent = seconds === 0
+        ? 'No countdown: the kiosk takes the photo as soon as the visitor presses Capture Photo.'
+        : `The kiosk counts down from ${seconds} to 1 on the camera view, then takes the photo.`;
+}
+// <Jun Kai end>
+
 // Load timer countdown setting from server
 async function loadTimerCountdownSetting() {
     console.log('⏱️ Loading timer countdown setting...');
@@ -26,7 +72,8 @@ async function loadTimerCountdownSetting() {
 
     // Handle REFRESH button state
     refreshBtn.disabled = true;
-    refreshBtn.textContent = '⏳ Loading...';
+    setTimerButtonText(refreshBtn, 'Loading'); // <Jun Kai/>
+    setTimerStatus('', ''); // <Jun Kai/>
 
     // Keep save button disabled during load (but don't change its text)
     saveBtn.disabled = true;
@@ -64,7 +111,7 @@ async function loadTimerCountdownSetting() {
         
     } catch (err) {
         console.error("❌ Failed to load countdown:", err);
-        showNotification('Failed to load timer countdown: ' + err.message, 'error');
+        setTimerStatus('error', 'Failed to load the countdown: ' + err.message); // <Jun Kai/>
         
         // Set default values
         input.value = 3;
@@ -73,7 +120,7 @@ async function loadTimerCountdownSetting() {
     } finally {
         // Restore REFRESH button to normal
         refreshBtn.disabled = false;
-        refreshBtn.textContent = '🔄 Refresh';
+        setTimerButtonText(refreshBtn, 'Refresh'); // <Jun Kai/>
         
         // Re-validate save button state
         validateTimerCountdown();
@@ -89,12 +136,12 @@ async function saveTimerCountdownSetting() {
     
     // Validate input
     if (!Number.isInteger(value) || value < 0) {
-        showNotification("Please enter a whole number 0 or higher.", 'error');
+        setTimerStatus('error', 'Please enter a whole number 0 or higher.'); // <Jun Kai/>
         return;
     }
 
     saveBtn.disabled = true;
-    saveBtn.textContent = 'Saving...';
+    setTimerButtonText(saveBtn, 'Saving'); // <Jun Kai/>
 
     try {
         console.log('💾 Attempting to save countdown:', value);
@@ -133,7 +180,7 @@ async function saveTimerCountdownSetting() {
         validateTimerCountdown();
         
         // Show success message
-        showNotification('Countdown saved successfully!', 'success');
+        setTimerStatus('success', value === 0 ? 'Saved: no countdown, the photo is taken at once' : `Saved: a ${value} second countdown`); // <Jun Kai/>
         
         // Log server response
         console.log('Server confirmed countdown_seconds:', data.countdown_seconds);
@@ -143,13 +190,13 @@ async function saveTimerCountdownSetting() {
         
         // Show detailed error message
         let errorMessage = 'Failed to save countdown: ' + err.message;
-        
-        showNotification(errorMessage, 'error');
-        
+
+        setTimerStatus('error', errorMessage); // <Jun Kai/>
+
         // Re-enable save button on error
         saveBtn.disabled = false;
     } finally {
-        saveBtn.textContent = '💾 Save';
+        setTimerButtonText(saveBtn, 'Save'); // <Jun Kai/>
     }
 }
 
@@ -159,6 +206,8 @@ function validateTimerCountdown() {
     if (!input || !saveBtn) return;
 
     input.value = input.value.replace(/[^0-9]/g, '');
+    markTimerQuickPick(); // <Jun Kai/>
+    renderTimerPreview(); // <Jun Kai/>
 
     const value = Number(input.value);
     const originalValue = Number(input.dataset.originalValue || 0);

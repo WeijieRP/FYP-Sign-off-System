@@ -1,10 +1,12 @@
 // Owner: Role 3, Jun Kai.
 // Takes one hardware sample every N seconds (Admin > Hardware > interval) and stores it in
 // hardware_samples; deletes rows older than the retention once an hour. Started by backend/server.js only.
+// <Jun Kai start> Each finished UTC day is summed up into hardware_daily (daily.js) before that clean-up. <Jun Kai end>
 // <Jun Kai start>
 const db = require('../../core/db');
 const collect = require('./collect');
 const settings = require('./settings');
+const daily = require('./daily');
 
 const FIRST_SAMPLE_DELAY_MS = 10000;
 const PRUNE_EVERY_MS = 60 * 60 * 1000;
@@ -22,6 +24,8 @@ const state = {
     sampleCount: 0,
     lastPrune: 0,
     gpuFailures: 0,
+    lastRollUp: null,
+    dailyError: null,
     loggedErrors: new Set()
 };
 const GPU_FAILURES_BEFORE_GIVING_UP = 3;
@@ -68,10 +72,25 @@ async function prune() {
     await run('DELETE FROM hardware_samples WHERE sampled_at < UTC_TIMESTAMP() - INTERVAL ? DAY', [state.retentionDays]);
 }
 
+// The first sample of a new UTC day sums up the days that are over (and, after a long sleep, every day missed)
+async function rollUpDays() {
+    const today = new Date().toISOString().slice(0, 10);
+    if (state.lastRollUp === today) return;
+    try {
+        await daily.rollUp();
+        state.lastRollUp = today;
+        state.dailyError = null;
+    } catch (error) {
+        state.dailyError = error.code === 'ER_NO_SUCH_TABLE' ? 'Table hardware_daily is missing: run npm run db:migrate' : error.message;
+        logOnce(state.dailyError);
+    }
+}
+
 async function tick() {
     try {
         const sample = await takeSample();
         await store(sample);
+        await rollUpDays();
         await prune();
         state.lastSample = sample;
         state.lastSampledAt = sample.at;
@@ -120,6 +139,7 @@ function getStatus() {
         lastSampledAt: state.lastSampledAt,
         lastSample: state.lastSample,
         lastError: state.lastError,
+        dailyError: state.dailyError,
         sampleCount: state.sampleCount
     };
 }

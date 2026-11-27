@@ -1,60 +1,52 @@
 // Owner: Role 3, Jun Kai.
 // Runs the saved policies. Started by backend/server.js only. Once a minute, in AUTO mode:
-//  - the policies have just switched the kiosk off (an Active policy ended or a Stop policy began) -> hibernate the
-//    PC (once per switch)
-//  - the policies say the kiosk runs and the kiosk server is not reachable -> start it (this is also what brings the
-//    kiosk back after the Windows wake timer resumes the PC)
+//  - the policies have just switched the kiosk off (an Active policy ended or a Stop policy began) -> the switch-off
+//    is recorded in the automation log (once per switch) and the kiosk page shows its closed screen (openState.js,
+//    19 Nov 2026); the kiosk server keeps running (the user's choice B, 12 Nov 2026). Putting the PC itself to sleep
+//    and waking it again is the system-level hibernation scheduling of Role 4 (Ryan); policies.status and
+//    policies.wakeTimes give that part the stop and start times
+//  - the policies say the kiosk runs and the kiosk server is not reachable -> start it
+//  - the policies have just switched the kiosk on -> recorded too ("on hours started"), so the History list has both ends
 // KIOSK_AUTOMATION=off disables everything (CI, laptops); KIOSK_AUTOMATION=dry-run logs instead of acting.
 const control = require('./control');
-const wakeTask = require('./wakeTask');
 // <Jun Kai start>
 const policies = require('./policies');
 
-const state = { started: false, enabled: true, dryRun: false, lastTick: null, lastStartAttempt: 0, timer: null, wakeSyncDay: null, lastOn: null };
+const state = { started: false, enabled: true, dryRun: false, lastTick: null, timer: null, lastOn: null };
+// startAll.js starts the kiosk server at the same moment as this server, and a cold start can take half a minute. A
+// second copy started from here in that time would fight it for port 3003, and when startAll.js's own copy loses,
+// startAll.js stops this server as well. So the first automatic start waits this long.
+const STARTUP_GRACE_MS = 90 * 1000;
 
 function automationSetting() {
     const value = String(process.env.KIOSK_AUTOMATION || 'on').toLowerCase();
     return ['off', 'dry-run'].includes(value) ? value : 'on';
 }
 
-// The wake timer only holds wake-ups in AUTO mode: manual mode pauses the policies, so nothing may wake the PC
-function syncWake(list) {
-    if (control.readModeConfig().mode === 'auto') wakeTask.sync(list);
-    else wakeTask.clear();
-}
-
-// The wake task covers 14 days, so rebuild it on the first tick of each day (also right after the PC resumes)
-function syncWakeDaily(list, now) {
-    const today = policies.localYmd(now);
-    if (state.wakeSyncDay === today) return;
-    state.wakeSyncDay = today;
-    syncWake(list);
-}
-
-// POST /api/admin/server/mode calls this: AUTO rebuilds the wake-ups at once, manual removes them
-function modeChanged() {
-    if (state.started && state.enabled) syncWake(control.readSchedulesConfig().schedules);
-}
-
 function tick(now = new Date()) {
     state.lastTick = now.toISOString();
     const list = control.readSchedulesConfig().schedules;
-    syncWakeDaily(list, now);
     // worked out in manual mode too, so switching back to automatic at night is not mistaken for a switch-off
     const decision = policies.decide(list, now, control.readAutomation().lastHibernateKey, { lastOn: state.lastOn });
+    // lastOn is null on the first tick after a start: that is not a switch
+    const switchedOn = decision.on && state.lastOn === false;
     state.lastOn = decision.on;
     if (control.readModeConfig().mode !== 'auto') return;
 
-    if (decision.hibernate) {
+    if (switchedOn) control.recordEvent('on', `on hours started: "${decision.winner.policy.schedule_name}" is in force`, state.dryRun);
+
+    if (decision.switchedOff) {
+        // lastHibernateKey (name kept for saved files) marks this switch-off as recorded
         control.setLastHibernateKey(decision.key);
-        control.hibernateNow(`the kiosk switched off: ${policies.offReason(decision.due)}`, { dryRun: state.dryRun });
+        control.recordEvent('off', `off hours started: ${policies.offReason(decision.due)} (the kiosk page shows the closed screen; the kiosk server keeps running)`, state.dryRun);
         return;
     }
 
-    if (decision.on && Date.now() - state.lastStartAttempt > 5 * 60 * 1000) {
+    // the last start attempt is shared with the incident fix (control.lastStartAttempt), so they never both start it
+    if (decision.on && Date.now() - control.lastStartAttempt() > control.START_GAP_MS) {
         control.resolveKioskStatus((status) => {
             if (status.running) return;
-            state.lastStartAttempt = Date.now();
+            control.noteStartAttempt();
             control.recordEvent('start', `"${decision.winner.policy.schedule_name}" is in force and the kiosk server is not reachable`, state.dryRun);
             if (state.dryRun) return;
             control.startKiosk((result) => {
@@ -74,42 +66,38 @@ function start() {
         console.log('⏸️  Kiosk automation is off on this machine (KIOSK_AUTOMATION=off)');
         return;
     }
-    wakeTask.setDryRun(state.dryRun);
-    control.onSchedulesChanged((list) => syncWake(list));
-    syncWakeDaily(control.readSchedulesConfig().schedules, new Date());
     console.log(`⏰ Kiosk automation ${state.dryRun ? 'in DRY RUN (actions are only logged)' : 'on'}: policies apply in AUTO mode`);
+    control.noteStartAttempt(Date.now() - control.START_GAP_MS + STARTUP_GRACE_MS);
     setTimeout(() => {
         tick();
         state.timer = setInterval(() => tick(), 60000);
     }, 5000);
 }
 
-function getStatus(callback) {
+// limit: how many History lines to send, newest first
+function getStatus(callback, { limit = 10 } = {}) {
     const now = new Date();
     const list = control.readSchedulesConfig().schedules;
     const enabledList = list.filter(policies.isEnabled);
     const current = policies.status(list, now);
     const automation = control.readAutomation();
     const until = current.until ? current.until.toISOString() : null;
-    wakeTask.status((wake) => {
-        callback({
-            enabled: state.enabled,
-            dryRun: state.dryRun,
-            mode: control.readModeConfig().mode,
-            lastTick: state.lastTick,
-            activeSchedules: enabledList.length,
-            stopPolicies: enabledList.filter((p) => policies.actionOf(p) === 'stop').length,
-            activePolicies: enabledList.filter((p) => policies.actionOf(p) === 'active').length,
-            wakeNeeded: control.readModeConfig().mode === 'auto' && policies.wakeTimes(list, now).times.length > 0,
-            currentWindow: current.on && current.policy ? { schedule: current.policy.schedule_name, until } : null,
-            stoppedBy: !current.on && current.policy ? { schedule: current.policy.schedule_name, until } : null,
-            nextStart: current.nextStart ? current.nextStart.toISOString() : null,
-            nextStop: current.nextStop ? current.nextStop.toISOString() : null,
-            events: automation.events.slice(-10).reverse(),
-            wake
-        });
+    callback({
+        enabled: state.enabled,
+        dryRun: state.dryRun,
+        mode: control.readModeConfig().mode,
+        lastTick: state.lastTick,
+        activeSchedules: enabledList.length,
+        stopPolicies: enabledList.filter((p) => policies.actionOf(p) === 'stop').length,
+        activePolicies: enabledList.filter((p) => policies.actionOf(p) === 'active').length,
+        currentWindow: current.on && current.policy ? { schedule: current.policy.schedule_name, until } : null,
+        stoppedBy: !current.on && current.policy ? { schedule: current.policy.schedule_name, until } : null,
+        nextStart: current.nextStart ? current.nextStart.toISOString() : null,
+        nextStop: current.nextStop ? current.nextStop.toISOString() : null,
+        events: control.byTime(automation.events).slice(-limit).reverse(),
+        eventsTotal: automation.events.length
     });
 }
 
-module.exports = { start, tick, getStatus, modeChanged };
+module.exports = { start, tick, getStatus, STARTUP_GRACE_MS };
 // <Jun Kai end>

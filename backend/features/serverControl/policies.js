@@ -107,10 +107,10 @@ function transitions(policies, from, to) {
     return changes;
 }
 
-// What the scheduler should do now. It hibernates only right after the kiosk switched off: at an on -> off change
-// in the timeline (within graceMs), or because a policy change turned it off since the last tick (lastOn = what the
-// last tick saw). Never just because the state is off, so a PC switched on by hand at night is left alone. A gap
-// that ends within minGapMs is not worth sleeping through: the wake timer would already be in the past.
+// What the scheduler should do now. switchedOff is true only right after the kiosk switched off: at an on -> off
+// change in the timeline (within graceMs), or because a policy change turned it off since the last tick (lastOn = what
+// the last tick saw). Never just because the state is off. A gap that ends within minGapMs does not count as a
+// switch-off (the kiosk is back in a few minutes).
 function decide(policies, now, lastKey, { graceMs = 90 * 1000, lastOn = null, minGapMs = 5 * 60 * 1000 } = {}) {
     const winner = winnerAt(policies, now);
     const on = !!winner && actionOf(winner.policy) === 'active';
@@ -122,7 +122,7 @@ function decide(policies, now, lastKey, { graceMs = 90 * 1000, lastOn = null, mi
         key = `off|edit|${now.toISOString().slice(0, 16)}`;
     }
     const backSoon = !on && !!due && transitions(policies, now, new Date(now.getTime() + minGapMs)).some((c) => c.on);
-    return { on, winner, due, key, backSoon, hibernate: !!due && !on && key !== lastKey && !backSoon };
+    return { on, winner, due, key, backSoon, switchedOff: !!due && !on && key !== lastKey && !backSoon };
 }
 
 function offReason(change) {
@@ -181,6 +181,7 @@ function preview(policies, now, days = 7, start = now) {
             on: s.on,
             id: s.policy.id,
             name: s.policy.schedule_name,
+            color: s.policy.color || null,
             action: actionOf(s.policy),
             position: s.index + 1
         }));
@@ -253,9 +254,13 @@ function validDate(text) {
 }
 
 // Checks a policy from the admin page (merged over `previous` when editing). Returns { policy } or { error }.
+// The colours a policy can have on the calendar (Stop policies are always drawn grey); no colour = picked from the id
+const COLORS = ['blue', 'green', 'purple', 'orange', 'teal', 'rose', 'indigo', 'amber', 'cyan', 'brown'];
+
 function normalize(input, previous = {}) {
     const merged = { ...previous };
     for (const [key, value] of Object.entries(input || {})) {
+        if (['__proto__', 'constructor', 'prototype'].includes(key)) continue; // never a field of a policy
         if (value !== undefined && value !== null) merged[key] = value; // a missing or null field keeps its saved value
     }
     if (typeof merged.schedule_name !== 'string') return { error: 'Give the policy a name' };
@@ -287,7 +292,8 @@ function normalize(input, previous = {}) {
         days_of_week: null,
         months: null,
         specific_date: null,
-        is_active: isEnabled(merged)
+        is_active: isEnabled(merged),
+        color: COLORS.includes(merged.color) ? merged.color : null
     };
     if (policy.schedule_type === 'weekly') {
         const days = numberList(merged.days_of_week, 1, 7);
@@ -308,6 +314,6 @@ function normalize(input, previous = {}) {
 module.exports = {
     TYPES, SPECIFICITY, TYPE_LABEL,
     actionOf, isEnabled, parseTime, numberList, localYmd, appliesOn, windowOn, winnerAt, timeline, transitions,
-    decide, offReason, status, wakeTimes, preview, rank, insertIndex, defaultOrder, placementReason, normalize, overlaps
+    decide, offReason, status, wakeTimes, preview, rank, insertIndex, defaultOrder, placementReason, normalize, overlaps, COLORS
 };
 // <Jun Kai end>

@@ -541,3 +541,52 @@ module.exports = {
     reloadCache,
     normalizeStorageMode
 };
+
+// <Jun Kai start>
+// Removes every cached analysis of these texts (Visitor Data Archive, after the records were deleted) from memory,
+// the JSON file and the table, whatever the storage mode is now: a store the admin switched away from still holds
+// old entries, and switching back to "both" copies them into the other store. Returns how many entries left memory.
+async function purgeTexts(texts) {
+    const wanted = new Set([...(texts || [])].map(normalizeAnalysisText).filter(Boolean));
+    if (wanted.size === 0) return 0;
+    // load first: in "both" mode loading rewrites the table from memory, which would bring purged rows back
+    await ensureReady();
+    const isWanted = (entry) => wanted.has(normalizeAnalysisText(entry && (entry.normalizedText || entry.sourceText)));
+    let removed = 0;
+    for (const [key, entry] of cacheMap) {
+        if (isWanted(entry)) {
+            cacheMap.delete(key);
+            removed++;
+        }
+    }
+    try {
+        if (storageMode === 'json' || storageMode === 'both') {
+            writeCacheToFile();
+        } else if (fs.existsSync(CACHE_FILE)) {
+            // database mode: memory came from the table, so filter the file itself (read and write with no await between)
+            const parsed = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
+            const isList = Array.isArray(parsed.entries);
+            const list = isList ? parsed.entries : Object.entries(parsed.entries || {});
+            const kept = isList ? list.filter((entry) => !isWanted(entry)) : list.filter(([, entry]) => !isWanted(entry));
+            if (kept.length !== list.length) {
+                parsed.entries = isList ? kept : Object.fromEntries(kept);
+                fs.writeFileSync(CACHE_FILE, JSON.stringify(parsed, null, 2), 'utf8');
+            }
+        }
+    } catch (error) {
+        console.debug(`Analysis cache file purge skipped (${error.message})`);
+    }
+    try {
+        const list = [...wanted];
+        for (let i = 0; i < list.length; i += 500) {
+            await db.pool.promise().query(`DELETE FROM ${CACHE_TABLE} WHERE normalized_text IN (?)`, [list.slice(i, i + 500)]);
+        }
+    } catch (error) {
+        // json mode never creates the table
+        if (error.code !== 'ER_NO_SUCH_TABLE') console.debug(`Analysis cache table purge skipped (${error.message})`);
+    }
+    return removed;
+}
+
+module.exports.purgeTexts = purgeTexts;
+// <Jun Kai end>

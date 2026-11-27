@@ -40,6 +40,7 @@
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const db = require('./db');
+const { forLog } = require('./log'); // <Jun Kai/> request values are printed without line breaks
 const { isDeviceNearby } = require('../features/assets/bluetooth');
 
 // ==================== 1. CONFIGURATION ====================
@@ -250,7 +251,9 @@ function loginUser(username, password, callback) {
         return callback(new Error('Username and password are required'), null);
     }
 
-    const query = 'SELECT * FROM admin_users WHERE username = ? AND is_active = 1';
+    // <Jun Kai start> an account moved to Deleted Users no longer signs in. A row with no value there was never deleted
+    const query = 'SELECT * FROM admin_users WHERE username = ? AND is_active = 1 AND (is_deleted = 0 OR is_deleted IS NULL)';
+    // <Jun Kai end>
     
     db.get(query, [username], async (err, row) => {
         if (err) {
@@ -259,7 +262,7 @@ function loginUser(username, password, callback) {
         }
         
         if (!row) {
-            console.log('❌ Login failed: User not found or inactive:', username);
+            console.log('❌ Login failed: User not found or inactive:', forLog(username));
             return callback(new Error('Invalid username or password'), null);
         }
         
@@ -287,9 +290,9 @@ function loginUser(username, password, callback) {
             }
             
             if (passwordMatch) {
-                console.debug('✅ Login successful:', username);
+                console.debug('✅ Login successful:', forLog(username));
                 if (upgradedPlainTextPassword) {
-                    console.debug('✅ Upgraded plain-text password hash for:', username);
+                    console.debug('✅ Upgraded plain-text password hash for:', forLog(username));
                 }
                 
                 // Update last login time
@@ -309,7 +312,7 @@ function loginUser(username, password, callback) {
                 
                 callback(null, user);
             } else {
-                console.log('❌ Login failed: Invalid password for user:', username);
+                console.log('❌ Login failed: Invalid password for user:', forLog(username));
                 callback(new Error('Invalid username or password'), null);
             }
         } catch (verifyError) {
@@ -485,3 +488,19 @@ module.exports = {
     // Bluetooth proximity check
     bluetoothAccessControl
 };
+
+// <Jun Kai start>
+// A short fingerprint of the email key (never the key): tells the Visitor Data Archive page whether an archive
+// was written with the key this server has now
+function keyFingerprint() {
+    return crypto.createHash('sha256').update(Buffer.from(ENCRYPTION_KEY.slice(0, 64), 'hex')).digest('hex').slice(0, 16);
+}
+
+// True when backend/.env has no ENCRYPTION_KEY, so the public development key above is in use
+function usesDevelopmentKey() {
+    return !process.env.ENCRYPTION_KEY;
+}
+
+module.exports.keyFingerprint = keyFingerprint;
+module.exports.usesDevelopmentKey = usesDevelopmentKey;
+// <Jun Kai end>

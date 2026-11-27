@@ -531,10 +531,16 @@ async function setupVisitorMilestone(data = {}) {
 }
 
 async function fetchCelebrationImpactSnapshot() {
-    const [pledgeResult, treeResult] = await Promise.allSettled([
+    // <Jun Kai start>
+    // the third request is every pledge ever made (archived and deleted ones too); the pledgeboard list only has the ones on show
+    const [pledgeResult, treeResult, countResult] = await Promise.allSettled([
         fetch('/api/pledgeboard/pledges', { headers: { 'Cache-Control': 'no-cache' } }).then(response => response.json()),
-        fetch('/api/tree', { headers: { 'Cache-Control': 'no-cache' } }).then(response => response.json())
+        fetch('/api/tree', { headers: { 'Cache-Control': 'no-cache' } }).then(response => response.json()),
+        fetch('/api/feedback/visitor-count', { headers: { 'Cache-Control': 'no-cache' } }).then(response => response.json())
     ]);
+    const reportedPledges = countResult.status === 'fulfilled' ? countResult.value?.totalPledges : null;
+    const allTimePledges = typeof reportedPledges === 'number' && Number.isFinite(reportedPledges) ? reportedPledges : null;
+    // <Jun Kai end>
 
     const pledges = pledgeResult.status === 'fulfilled' && Array.isArray(pledgeResult.value?.pledges)
         ? pledgeResult.value.pledges
@@ -553,7 +559,9 @@ async function fetchCelebrationImpactSnapshot() {
 
     return {
         monthPledges,
-        totalPledges: pledges.length,
+        // <Jun Kai start>
+        totalPledges: allTimePledges ?? pledges.length,
+        // <Jun Kai end>
         treeLeaves
     };
 }
@@ -644,8 +652,8 @@ function setupCelebrationMoment(data) {
     if (title) title.textContent = userData.pledgeSkipped ? 'Your feedback joined the tree' : 'Your pledge joined the tree';
     if (copy) {
         copy.textContent = userData.pledgeSkipped
-            ? 'Your visit still grows the ESG digital tree as a feedback contribution.'
-            : `Your ${reward.leaf} is now part of the ESG digital tree.`;
+            ? 'Your visit still grows the RP Xperience Centre digital tree as a feedback contribution.'
+            : `Your ${reward.leaf} is now part of the RP Xperience Centre digital tree.`;
     }
 
     renderCelebrationLeaves(color, flightTarget);
@@ -725,7 +733,7 @@ function getPassportPhotoStatus(data) {
 function getPassportLeafMessage(leafName) {
     const leafText = leafName || 'classic feedback leaf';
     const article = /^[aeiou]/i.test(leafText) ? 'An' : 'A';
-    return `${article} ${leafText} was added to the ESG tree.`;
+    return `${article} ${leafText} was added to the RP Xperience Centre tree.`;
 }
 
 function escapePassportHtml(value) {
@@ -849,7 +857,7 @@ function renderVisitorPassportHistory(passportData, data) {
 
     if (title) {
         const holder = passport.holderName || userData.name || 'Your';
-        title.textContent = `${holder}'s ESG passport`;
+        title.textContent = `${holder}'s RP Xperience Centre passport`;
     }
 
     summary.innerHTML = [
@@ -1011,7 +1019,7 @@ function sharePledge(platform) {
     } else if (platform === 'instagram') {
         if (navigator.share) {
             navigator.share({
-                title: 'My RP ESG Pledge',
+                title: 'My RP Xperience Centre Pledge',
                 text: text,
                 url: window.location.href
             }).catch(() => {

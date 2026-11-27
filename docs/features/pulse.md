@@ -11,6 +11,10 @@
 
 Live sentiment wall: today / week / month counts, newest pledges, badge earners and a preview of tree visitors. Polls /api/pulse/summary on a fixed interval.
 
+<!-- <Jun Kai start> -->
+Role 3 hook (Visitor Data Archive, marked in routes.js and pulse.html): All-Time Pledges counts every pledge ever made, archived and deleted ones included (backend/features/archive/deletedCounts.js); its note says so. The today, week and month counts and the lists still show only what is on show. See docs/features/archive.md.
+<!-- <Jun Kai end> -->
+
 **Routes** (from tests/contracts/routes.snapshot.txt)
 
 | Method | Path | Registered in |

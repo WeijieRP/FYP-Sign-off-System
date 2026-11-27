@@ -97,6 +97,7 @@
 require('dotenv').config({ path: require('path').join(__dirname, '.env'), quiet: true }); // backend/.env regardless of the working directory
 // <Jun Kai start>
 require('./core/log').setupLogging(); // request chatter only with LOG_LEVEL=debug
+require('./core/log').captureEvents('kiosk'); // warnings and errors also go to logs/app-events-kiosk.jsonl for the anomaly detection
 // <Jun Kai end>
 const express = require('express');
 const http = require('http');
@@ -113,11 +114,24 @@ const pulseRoutes = require('./features/pulse/routes');
 const emailService = require('./features/email/service');
 const parametersConfigStore = require('./features/parameters/store');
 
-const { router: treeRoutes, setDatabase: setTreeDatabase } = require('./features/tree/routes');
+const { router: treeRoutes, setDatabase: setTreeDatabase, countLiveTreeLeaves } = require('./features/tree/routes');
+const { withAutoTreeStage } = require('./features/parameters/treeStage');
+const { serveChosenTree } = require('./features/parameters/treeDisplay');
 const dataRetentionCleanup = require('./features/archive/retention');
 const QRCode = require('qrcode');
+// <Jun Kai start>
+const { signedInOrThisPc } = require('./core/localPc'); // for the routes that tell about the server itself
+const kioskOpenState = require('./features/serverControl/openState'); // whether the policies have the kiosk open now
+const STARTED_AT = new Date().toISOString(); // a kiosk page reloads itself when this changed (heartbeat.js)
+const uploadsGate = require('./core/uploadsGate'); // visitor files: only for the browser that just made the file
+// <Jun Kai end>
 
 const app = express();
+require('./core/securityHeaders').apply(app); // <Jun Kai/> security headers on every answer
+// <Jun Kai start> a limit on requests per address (backend/core/requestLimit.js)
+const { rateLimit } = require('express-rate-limit');
+app.use(rateLimit(require('./core/requestLimit').EVERY_REQUEST));
+// <Jun Kai end>
 const PORT = 3003; // CHANGED: Now runs on 3003 (behind gateway on 3001)
 
 // ==================== NETWORK INTERFACE FUNCTIONS ====================
@@ -244,7 +258,11 @@ app.use(
     saveUninitialized: false,
     rolling: true,
     cookie: {
-      secure: sslOptions !== null,
+      // <Jun Kai start> this server listens on plain http (http.createServer below), and a "secure" cookie is never
+      // set over http, so no visitor ever had a session here. The photo download on the thank-you page needs one
+      // (backend/core/uploadsGate.js)
+      secure: false,
+      // <Jun Kai end>
       httpOnly: true,
       maxAge: 1800000,
       sameSite: 'lax',
@@ -254,7 +272,7 @@ app.use(
 
 // Static files
 app.use(express.static(paths.FRONTEND));
-app.use('/uploads', express.static(paths.UPLOADS));
+app.use('/uploads', uploadsGate.gate, express.static(paths.UPLOADS)); // <Jun Kai/>
 app.use('/assets', express.static(paths.ASSETS));
 
 // Wire DB into tree routes
@@ -268,9 +286,11 @@ app.use('/api/pledgeboard', pledgeboardRoutes);
 app.use('/api/pulse', pulseRoutes);
 app.use('/api/tree', treeRoutes);
 
-app.get('/api/parameters', (req, res) => {
+app.get('/api/parameters', async (req, res) => {
   try {
-    res.json({ success: true, parameters: parametersConfigStore.readParametersConfig() });
+    // In Auto, the tree's growth stage follows its leaf count (features/parameters/treeStage.js).
+    const parameters = await withAutoTreeStage(parametersConfigStore.readParametersConfig(), countLiveTreeLeaves);
+    res.json({ success: true, parameters });
   } catch (error) {
     console.error('Error loading public parameters:', error);
     res.status(500).json({ success: false, error: 'Failed to load parameters' });
@@ -278,7 +298,7 @@ app.get('/api/parameters', (req, res) => {
 });
 
 // Network info
-app.get('/api/network-interfaces', (req, res) => {
+app.get('/api/network-interfaces', signedInOrThisPc, (req, res) => { // <Jun Kai/> a request made on this PC (nobody signs in on the kiosk server)
   res.json({
     interfaces: getAllNetworkIPs(),
     current: { ip: localIP, interface: interfaceName, port: PORT },
@@ -286,7 +306,7 @@ app.get('/api/network-interfaces', (req, res) => {
 });
 
 // Server info
-app.get('/api/server-info', (req, res) => {
+app.get('/api/server-info', signedInOrThisPc, (req, res) => { // <Jun Kai/> a request made on this PC (nobody signs in on the kiosk server)
   const protocol = sslOptions ? 'https' : 'http';
   const url = `${protocol}://${localIP}:${PORT}/feedback`;
 
@@ -306,7 +326,14 @@ app.get('/api/server-info', (req, res) => {
 app.get('/api/generate-qr', async (req, res) => {
   try {
     // Phones must use the HTTPS server on port 3000 (the 3001 gateway is not started on Windows)
-    const url = `https://${localIP}:3000/feedback`;
+    // <Jun Kai start> the address is picked again for each code: right after a power cut the network can come up after
+    // this server, and the address picked at the start is then localhost or a virtual adapter's
+    const say = console.log;
+    console.log = () => {}; // getSelectedIP prints what it picks
+    let addressNow = localIP;
+    try { addressNow = getSelectedIP(); } finally { console.log = say; }
+    const url = `https://${addressNow}:3000/feedback`;
+    // <Jun Kai end>
 
     const qrSvg = await QRCode.toString(url, {
       type: 'svg',
@@ -324,7 +351,7 @@ app.get('/api/generate-qr', async (req, res) => {
 });
 
 // Test database connection
-app.get('/api/test-db', (req, res) => {
+app.get('/api/test-db', signedInOrThisPc, (req, res) => { // <Jun Kai/> a request made on this PC (nobody signs in on the kiosk server)
   db.query(
     'SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema = ?',
     [process.env.DB_NAME || 'dp_kiosk_db'],
@@ -340,7 +367,7 @@ app.get('/api/test-db', (req, res) => {
 });
 
 // Email test endpoint
-app.get('/api/test-email-service', (req, res) => {
+app.get('/api/test-email-service', signedInOrThisPc, (req, res) => { // <Jun Kai/> a request made on this PC (nobody signs in on the kiosk server)
   const emailInitialized = emailService.initEmailService();
   if (emailInitialized) {
     res.json({
@@ -364,7 +391,12 @@ app.get('/api/status', (req, res) => {
     online: true,
     status: 'running',
     message: 'Kiosk server is online',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    // <Jun Kai start> for the kiosk page (frontend/feedback/js/heartbeat.js): when this server started, and whether
+    // the policies have the kiosk open now ({ open, opensAt, closedBy })
+    startedAt: STARTED_AT,
+    ...kioskOpenState.current()
+    // <Jun Kai end>
   });
 });
 
@@ -378,13 +410,15 @@ app.get('/pledgeboard', (req, res) => {
   res.sendFile(path.join(paths.FRONTEND, 'Pledgeboard', 'Pledgeboard.html'));
 });
 
-app.get('/tree', (req, res) => {
+// The 2D or 3D tree, as chosen in the admin's Display 2D/3D Tree: the other address goes straight to the
+// chosen tree (features/parameters/treeDisplay.js).
+app.get('/tree', serveChosenTree('2d', (req, res) => {
   res.sendFile(path.join(paths.FRONTEND, 'tree', 'tree.html'));
-});
+}));
 
-app.get('/3dTree', (req, res) => {
+app.get('/3dTree', serveChosenTree('3d', (req, res) => {
   res.sendFile(path.join(paths.FRONTEND, '3dTree', '3dTree.html'));
-});
+}));
 
 app.get('/pulse', (req, res) => {
   res.sendFile(path.join(paths.FRONTEND, 'pulse', 'pulse.html'));
